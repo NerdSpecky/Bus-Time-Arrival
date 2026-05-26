@@ -1,0 +1,8 @@
+flask
+requests
+gtfs-realtime-bindings
+protobuf
+pytz
+python-socketio[client]
+websocket-client
+gunicorn
