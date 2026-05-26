@@ -24,58 +24,58 @@ BUS_CACHE = {}
 CACHE_TIMEOUT = 180
 
 # Malaysia timezone
-MYT = pytz.timezone('AsiaKuala_Lumpur')
+MYT = pytz.timezone('Asia/Kuala_Lumpur')
 
 # API URLs - switched back to rapid-bus-kl
-GTFS_STATIC_URL = httpsapi.data.gov.mygtfs-staticprasaranacategory=rapid-bus-kl
-GTFS_REALTIME_URL = httpsapi.data.gov.mygtfs-realtimevehicle-positionprasaranacategory=rapid-bus-kl
+GTFS_STATIC_URL = "https://api.data.gov.my/gtfs-static/prasarana?category=rapid-bus-kl"
+GTFS_REALTIME_URL = "https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana?category=rapid-bus-kl"
 
-def find_route_by_name(route_name)
-    Find route_id by matching route_id directly, then short_name, then long_name
-    # FIX 2 Check direct route_id match first (rapid-bus-kl sends route_id directly)
-    if route_name in ROUTES
+def find_route_by_name(route_name):
+    """Find route_id by matching route_id directly, then short_name, then long_name"""
+    # FIX 2: Check direct route_id match first (rapid-bus-kl sends route_id directly)
+    if route_name in ROUTES:
         return route_name
 
-    clean_name = route_name.replace( Inbound, ).replace( Outbound, ).strip()
+    clean_name = route_name.replace(" Inbound", "").replace(" Outbound", "").strip()
 
-    for route_id, route_info in ROUTES.items()
-        if route_info.get('short_name') == clean_name
+    for route_id, route_info in ROUTES.items():
+        if route_info.get('short_name') == clean_name:
             return route_id
-        if route_info.get('long_name') == clean_name
+        if route_info.get('long_name') == clean_name:
             return route_id
 
     return None
 
-def match_trip_id(realtime_trip_id, static_trip_id)
-    if realtime_trip_id == static_trip_id
+def match_trip_id(realtime_trip_id, static_trip_id):
+    if realtime_trip_id == static_trip_id:
         return True
-    if static_trip_id.endswith(realtime_trip_id)
+    if static_trip_id.endswith(realtime_trip_id):
         return True
     rt_parts = realtime_trip_id.split('_')
     st_parts = static_trip_id.split('_')
-    if len(rt_parts) = 3 and len(st_parts) = 3
-        if rt_parts[-3] == st_parts[-3]
+    if len(rt_parts) >= 3 and len(st_parts) >= 3:
+        if rt_parts[-3:] == st_parts[-3:]:
             return True
     return False
 
-def find_matching_trip(realtime_trip_id)
-    if realtime_trip_id in TRIPS
+def find_matching_trip(realtime_trip_id):
+    if realtime_trip_id in TRIPS:
         return realtime_trip_id
-    for static_trip_id in TRIPS.keys()
-        if match_trip_id(realtime_trip_id, static_trip_id)
+    for static_trip_id in TRIPS.keys():
+        if match_trip_id(realtime_trip_id, static_trip_id):
             return static_trip_id
     return None
 
-def download_and_load_gtfs()
-    print(=  60)
-    print(LOADING GTFS STATIC DATA)
-    print(=  60)
+def download_and_load_gtfs():
+    print("=" * 60)
+    print("LOADING GTFS STATIC DATA")
+    print("=" * 60)
 
-    try
-        print(fDownloading from {GTFS_STATIC_URL})
+    try:
+        print(f"Downloading from: {GTFS_STATIC_URL}")
         response = requests.get(GTFS_STATIC_URL, timeout=30)
         response.raise_for_status()
-        print(fDownloaded {len(response.content),} bytes)
+        print(f"Downloaded {len(response.content):,} bytes")
 
         zip_file = zipfile.ZipFile(io.BytesIO(response.content))
 
@@ -84,34 +84,34 @@ def download_and_load_gtfs()
         ROUTES.clear()
         TRIPS.clear()
 
-        print(nLoading stops.txt...)
-        with zip_file.open('stops.txt') as f
+        print("\nLoading stops.txt...")
+        with zip_file.open('stops.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
-            for row in reader
+            for row in reader:
                 STOPS[row['stop_id']] = {
-                    'name' row['stop_name'],
-                    'lat' float(row['stop_lat']),
-                    'lon' float(row['stop_lon'])
+                    'name': row['stop_name'],
+                    'lat': float(row['stop_lat']),
+                    'lon': float(row['stop_lon'])
                 }
-        print(f✓ Loaded {len(STOPS),} stops)
+        print(f"✓ Loaded {len(STOPS):,} stops")
 
-        print(Loading routes.txt...)
-        with zip_file.open('routes.txt') as f
+        print("Loading routes.txt...")
+        with zip_file.open('routes.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
-            for row in reader
+            for row in reader:
                 ROUTES[row['route_id']] = {
-                    'short_name' row['route_short_name'],
-                    'long_name' row['route_long_name'],
-                    'shapes' set()
+                    'short_name': row['route_short_name'],
+                    'long_name': row['route_long_name'],
+                    'shapes': set()
                 }
-        print(f✓ Loaded {len(ROUTES),} routes)
+        print(f"✓ Loaded {len(ROUTES):,} routes")
 
-        print(Loading shapes.txt...)
-        with zip_file.open('shapes.txt') as f
+        print("Loading shapes.txt...")
+        with zip_file.open('shapes.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
-            for row in reader
+            for row in reader:
                 shape_id = row['shape_id']
-                if shape_id not in SHAPES
+                if shape_id not in SHAPES:
                     SHAPES[shape_id] = []
                 SHAPES[shape_id].append((
                     float(row['shape_pt_lat']),
@@ -119,116 +119,116 @@ def download_and_load_gtfs()
                     int(row['shape_pt_sequence'])
                 ))
 
-        for shape_id in SHAPES
-            SHAPES[shape_id].sort(key=lambda p p[2])
-        print(f✓ Loaded {len(SHAPES),} shapes)
+        for shape_id in SHAPES:
+            SHAPES[shape_id].sort(key=lambda p: p[2])
+        print(f"✓ Loaded {len(SHAPES):,} shapes")
 
-        print(Loading trips.txt...)
-        with zip_file.open('trips.txt') as f
+        print("Loading trips.txt...")
+        with zip_file.open('trips.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
-            for row in reader
+            for row in reader:
                 TRIPS[row['trip_id']] = {
-                    'route_id' row['route_id'],
-                    'shape_id' row['shape_id'],
-                    'stops_served' set()
+                    'route_id': row['route_id'],
+                    'shape_id': row['shape_id'],
+                    'stops_served': set()
                 }
-                if row['route_id'] in ROUTES
+                if row['route_id'] in ROUTES:
                     ROUTES[row['route_id']]['shapes'].add(row['shape_id'])
-        print(f✓ Loaded {len(TRIPS),} trips)
+        print(f"✓ Loaded {len(TRIPS):,} trips")
 
-        print(Loading stop_times.txt...)
+        print("Loading stop_times.txt...")
         count = 0
-        with zip_file.open('stop_times.txt') as f
+        with zip_file.open('stop_times.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
-            for row in reader
-                if row['trip_id'] in TRIPS
+            for row in reader:
+                if row['trip_id'] in TRIPS:
                     TRIPS[row['trip_id']]['stops_served'].add(row['stop_id'])
                 count += 1
-        print(f✓ Loaded {count,} stop times)
+        print(f"✓ Loaded {count:,} stop times")
 
-        print(=  60)
-        print(✓ GTFS DATA LOADED)
-        print(=  60)
+        print("=" * 60)
+        print("✓ GTFS DATA LOADED")
+        print("=" * 60)
         return True
-    except Exception as e
-        print(f✗ ERROR {e})
+    except Exception as e:
+        print(f"✗ ERROR: {e}")
         import traceback
         traceback.print_exc()
         return False
 
-def haversine_distance(lat1, lon1, lat2, lon2)
+def haversine_distance(lat1, lon1, lat2, lon2):
     R = 6371.0
     lat1_r, lon1_r = math.radians(lat1), math.radians(lon1)
     lat2_r, lon2_r = math.radians(lat2), math.radians(lon2)
     dlat, dlon = lat2_r - lat1_r, lon2_r - lon1_r
-    a = math.sin(dlat2)2 + math.cos(lat1_r)  math.cos(lat2_r)  math.sin(dlon2)2
-    return R  2  math.atan2(math.sqrt(a), math.sqrt(1-a))
+    a = math.sin(dlat/2)**2 + math.cos(lat1_r) * math.cos(lat2_r) * math.sin(dlon/2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
-def find_closest_point_on_shape(lat, lon, shape_points)
+def find_closest_point_on_shape(lat, lon, shape_points):
     min_dist = float('inf')
     closest_idx = 0
-    for i, (slat, slon, seq) in enumerate(shape_points)
+    for i, (slat, slon, seq) in enumerate(shape_points):
         dist = haversine_distance(lat, lon, slat, slon)
-        if dist  min_dist
+        if dist < min_dist:
             min_dist = dist
             closest_idx = i
     return closest_idx, min_dist
 
-def calculate_shape_distance(shape_points, start, end)
-    if start = end
+def calculate_shape_distance(shape_points, start, end):
+    if start >= end:
         return 0
     total = 0
-    for i in range(start, end)
+    for i in range(start, end):
         lat1, lon1, _ = shape_points[i]
         lat2, lon2, _ = shape_points[i+1]
         total += haversine_distance(lat1, lon1, lat2, lon2)
     return total
 
-def calculate_arrival_time_smart(distance_km, current_speed_mps)
-    current_speed_kmh = current_speed_mps  3.6 if current_speed_mps else 0
+def calculate_arrival_time_smart(distance_km, current_speed_mps):
+    current_speed_kmh = current_speed_mps * 3.6 if current_speed_mps else 0
 
     # Distance-based speed profiles
-    if distance_km  1.0
+    if distance_km < 1.0:
         base_speed = 12
-    elif distance_km  3.0
+    elif distance_km < 3.0:
         base_speed = 18
-    elif distance_km  7.0
+    elif distance_km < 7.0:
         base_speed = 25
-    else
+    else:
         base_speed = 30
 
     # Speed selection
-    if current_speed_kmh  15
+    if current_speed_kmh > 15:
         estimated_speed = current_speed_kmh
-    elif 0  current_speed_kmh  8
-        estimated_speed = (current_speed_kmh  0.3) + (base_speed  0.7)
-    else
+    elif 0 < current_speed_kmh < 8:
+        estimated_speed = (current_speed_kmh * 0.3) + (base_speed * 0.7)
+    else:
         estimated_speed = base_speed
 
     estimated_speed = max(estimated_speed, 10)
 
     # Calculate time from speed
-    time_hours = distance_km  estimated_speed
-    time_minutes = time_hours  60
+    time_hours = distance_km / estimated_speed
+    time_minutes = time_hours * 60
 
     # Min and max time per distance band
     # Min = fastest realistic (clear road)
     # Max = slowest realistic (heavy traffic, many stops)
-    if distance_km  0.5
+    if distance_km < 0.5:
         min_minutes, max_minutes = 1, 3
-    elif distance_km  1.0
+    elif distance_km < 1.0:
         min_minutes, max_minutes = 2, 5
-    elif distance_km  2.0
+    elif distance_km < 2.0:
         min_minutes, max_minutes = 4, 10
-    elif distance_km  3.0
+    elif distance_km < 3.0:
         min_minutes, max_minutes = 6, 12
-    elif distance_km  5.0
+    elif distance_km < 5.0:
         min_minutes, max_minutes = 10, 20
-    elif distance_km  7.0
+    elif distance_km < 7.0:
         min_minutes, max_minutes = 15, 28
-    elif distance_km  10.0
+    elif distance_km < 10.0:
         min_minutes, max_minutes = 20, 38
-    else
+    else:
         min_minutes, max_minutes = 28, 50
 
     # Clamp between min and max
@@ -236,9 +236,9 @@ def calculate_arrival_time_smart(distance_km, current_speed_mps)
 
     return final_minutes, round(estimated_speed, 1), round(current_speed_kmh, 1)
 
-def fetch_live_buses()
-    print(nFetching live buses...)
-    try
+def fetch_live_buses():
+    print("\nFetching live buses...")
+    try:
         response = requests.get(GTFS_REALTIME_URL, timeout=10, allow_redirects=True)
         response.raise_for_status()
         feed = gtfs_realtime_pb2.FeedMessage()
@@ -248,146 +248,146 @@ def fetch_live_buses()
         active_vehicle_ids = set()
 
         buses = []
-        for entity in feed.entity
-            if entity.HasField('vehicle')
+        for entity in feed.entity:
+            if entity.HasField('vehicle'):
                 v = entity.vehicle
                 vehicle_id = v.vehicle.id if v.HasField('vehicle') else 'unknown'
                 active_vehicle_ids.add(vehicle_id)
 
-                # FIX 4 Get speed safely without HasField on scalar
+                # FIX 4: Get speed safely without HasField on scalar
                 speed = 0
-                try
+                try:
                     speed = v.position.speed
-                except
+                except:
                     speed = 0
 
                 bus_data = {
-                    'vehicle_id' vehicle_id,
-                    'trip_id' v.trip.trip_id if v.HasField('trip') else None,
-                    'route_id' v.trip.route_id if v.HasField('trip') else 'unknown',
-                    'latitude' v.position.latitude if v.HasField('position') else 0,
-                    'longitude' v.position.longitude if v.HasField('position') else 0,
-                    'speed' speed,
-                    'timestamp' current_time
+                    'vehicle_id': vehicle_id,
+                    'trip_id': v.trip.trip_id if v.HasField('trip') else None,
+                    'route_id': v.trip.route_id if v.HasField('trip') else 'unknown',
+                    'latitude': v.position.latitude if v.HasField('position') else 0,
+                    'longitude': v.position.longitude if v.HasField('position') else 0,
+                    'speed': speed,
+                    'timestamp': current_time
                 }
 
                 BUS_CACHE[vehicle_id] = {
-                    'last_seen' current_time,
-                    'data' bus_data,
-                    'visible' True
+                    'last_seen': current_time,
+                    'data': bus_data,
+                    'visible': True
                 }
 
                 buses.append(bus_data)
 
-        for vehicle_id in BUS_CACHE
-            if vehicle_id not in active_vehicle_ids
+        for vehicle_id in BUS_CACHE:
+            if vehicle_id not in active_vehicle_ids:
                 age = current_time - BUS_CACHE[vehicle_id]['last_seen']
-                if age  CACHE_TIMEOUT
+                if age > CACHE_TIMEOUT:
                     BUS_CACHE[vehicle_id]['visible'] = False
 
-        print(f✓ Found {len(buses)} live buses, {len(BUS_CACHE)} in cache)
+        print(f"✓ Found {len(buses)} live buses, {len(BUS_CACHE)} in cache")
         return buses
 
-    except Exception as e
-        print(f✗ ERROR {e})
+    except Exception as e:
+        print(f"✗ ERROR: {e}")
         return []
 
-def get_all_buses_with_cache()
+def get_all_buses_with_cache():
     current_time = time.time()
     all_buses = []
 
-    for vehicle_id, cache_entry in BUS_CACHE.items()
-        if not cache_entry['visible']
+    for vehicle_id, cache_entry in BUS_CACHE.items():
+        if not cache_entry['visible']:
             continue
 
         bus_data = cache_entry['data'].copy()
         age = current_time - cache_entry['last_seen']
 
         bus_data['cache_age_seconds'] = int(age)
-        bus_data['status'] = 'live' if age  30 else 'cached'
+        bus_data['status'] = 'live' if age < 30 else 'cached'
 
         all_buses.append(bus_data)
 
     return all_buses
 
-def fetch_kiosk_buses(route_name, provider=RKL)
-    Fetch bus positions from Prasarana Kiosk via HTTP polling
+def fetch_kiosk_buses(route_name, provider="RKL"):
+    """Fetch bus positions from Prasarana Kiosk via HTTP polling"""
     result = []
 
-    try
+    try:
         # Try HTTP polling endpoint instead of WebSocket
         # PythonAnywhere blocks WebSocket connections on free tier
-        url = fhttpsrapidbus-socketio-avl.prasarana.com.mysocket.io
+        url = f"https://rapidbus-socketio-avl.prasarana.com.my/socket.io/"
         params = {
-            'EIO' '3',
-            'transport' 'polling',
+            'EIO': '3',
+            'transport': 'polling',
         }
 
         session = requests.Session()
 
-        # Step 1 Get session ID
+        # Step 1: Get session ID
         r1 = session.get(url, params=params, timeout=10)
-        print(fPoll step 1 {r1.status_code} - {r1.text[100]})
+        print(f"Poll step 1: {r1.status_code} - {r1.text[:100]}")
 
         # Extract sid from response
         raw = r1.text
-        # Response looks like 970{sidxxx,...}
+        # Response looks like: 97:0{"sid":"xxx",...}
         json_start = raw.find('{')
-        if json_start == -1
-            print(No JSON in handshake response)
+        if json_start == -1:
+            print("No JSON in handshake response")
             return []
 
-        handshake = json.loads(raw[json_startraw.rfind('}')+1])
+        handshake = json.loads(raw[json_start:raw.rfind('}')+1])
         session_id = handshake.get('sid')
-        print(fGot session ID {session_id})
+        print(f"Got session ID: {session_id}")
 
-        if not session_id
+        if not session_id:
             return []
 
         params['sid'] = session_id
 
-        # Step 2 Send the onFts-reload event
-        payload = '42[onFts-reload,{sidhphb46dekrf98ik6agl9acbo4brl9ne4,uid,provider' + provider + ',route' + route_name + '}]'
+        # Step 2: Send the onFts-reload event
+        payload = '42["onFts-reload",{"sid":"hphb46dekrf98ik6agl9acbo4brl9ne4","uid":"","provider":"' + provider + '","route":"' + route_name + '"}]'
         r2 = session.post(url, params=params, data=payload, timeout=10)
-        print(fPoll step 2 {r2.status_code} - {r2.text[100]})
+        print(f"Poll step 2: {r2.status_code} - {r2.text[:100]}")
 
-        # Step 3 Poll for response
+        # Step 3: Poll for response
         time.sleep(2)
         r3 = session.get(url, params=params, timeout=10)
-        print(fPoll step 3 {r3.status_code} - {r3.text[200]})
+        print(f"Poll step 3: {r3.status_code} - {r3.text[:200]}")
 
         raw_response = r3.text
 
         # Find the Base64 data in the response
-        if 'onFts-client' in raw_response
+        if 'onFts-client' in raw_response:
             # Extract base64 payload
-            idx = raw_response.find('onFts-client,') + len('onFts-client,')
-            end_idx = raw_response.find('', idx)
-            b64_data = raw_response[idxend_idx]
+            idx = raw_response.find('onFts-client","') + len('onFts-client","')
+            end_idx = raw_response.find('"', idx)
+            b64_data = raw_response[idx:end_idx]
 
             decoded = base64.b64decode(b64_data)
             decompressed = zlib.decompress(decoded)
             buses = json.loads(decompressed.decode('utf-8'))
 
-            for bus in buses
-                if bus.get('route') == route_name
+            for bus in buses:
+                if bus.get('route') == route_name:
                     result.append({
-                        'vehicle_id' bus.get('bus_no', 'unknown'),
-                        'route_id' bus.get('route', 'unknown'),
-                        'latitude' bus.get('latitude', 0),
-                        'longitude' bus.get('longitude', 0),
-                        'speed' bus.get('speed', 0)  3.6,
-                        'trip_id' bus.get('trip_no', None),
-                        'timestamp' time.time(),
-                        'source' 'kiosk'
+                        'vehicle_id': bus.get('bus_no', 'unknown'),
+                        'route_id': bus.get('route', 'unknown'),
+                        'latitude': bus.get('latitude', 0),
+                        'longitude': bus.get('longitude', 0),
+                        'speed': bus.get('speed', 0) / 3.6,
+                        'trip_id': bus.get('trip_no', None),
+                        'timestamp': time.time(),
+                        'source': 'kiosk'
                     })
 
-            print(f✓ Kiosk API {len(result)} buses for {route_name})
-        else
-            print(fNo onFts-client in response {raw_response[300]})
+            print(f"✓ Kiosk API: {len(result)} buses for {route_name}")
+        else:
+            print(f"No onFts-client in response: {raw_response[:300]}")
 
-    except Exception as e
-        print(f✗ Kiosk API error {e})
+    except Exception as e:
+        print(f"✗ Kiosk API error: {e}")
 
     return result
 
@@ -395,29 +395,29 @@ def fetch_kiosk_buses(route_name, provider=RKL)
 # MAIN ROUTES
 # ============================================
 
-@app.route('')
-def hello()
-    return fFlask running! {len(ROUTES),} routes, {len(STOPS),} stops, {len(TRIPS),} trips, {len(BUS_CACHE)} buses cached
+@app.route('/')
+def hello():
+    return f"Flask running! {len(ROUTES):,} routes, {len(STOPS):,} stops, {len(TRIPS):,} trips, {len(BUS_CACHE)} buses cached"
 
-@app.route('busstop_id')
-def get_bus_arrivals(stop_id)
-    if stop_id not in STOPS
-        return jsonify({error Stop not found}), 404
+@app.route('/bus/<stop_id>')
+def get_bus_arrivals(stop_id):
+    if stop_id not in STOPS:
+        return jsonify({"error": "Stop not found"}), 404
 
     stop_info = STOPS[stop_id]
-    print(fn{'='80})
-    print(fStop {stop_id} {stop_info['name']})
-    print(f{'='80})
+    print(f"\n{'='*80}")
+    print(f"Stop {stop_id}: {stop_info['name']}")
+    print(f"{'='*80}")
 
     fetch_live_buses()
     all_buses = get_all_buses_with_cache()
 
-    if not all_buses
+    if not all_buses:
         return jsonify({
-            stop_id stop_id,
-            stop_name stop_info['name'],
-            buses [],
-            error No live data
+            "stop_id": stop_id,
+            "stop_name": stop_info['name'],
+            "buses": [],
+            "error": "No live data"
         })
 
     approaching = []
@@ -425,338 +425,338 @@ def get_bus_arrivals(stop_id)
     matched_fuzzy = 0
     matched_by_route = 0
 
-    for bus in all_buses
-        if not bus['trip_id']
+    for bus in all_buses:
+        if not bus['trip_id']:
             continue
 
         static_trip = find_matching_trip(bus['trip_id'])
         route_id_to_use = None
 
-        if static_trip and static_trip in TRIPS
+        if static_trip and static_trip in TRIPS:
             route_id_to_use = TRIPS[static_trip]['route_id']
-            if static_trip == bus['trip_id']
+            if static_trip == bus['trip_id']:
                 matched_exact += 1
-            else
+            else:
                 matched_fuzzy += 1
-        else
+        else:
             realtime_route_id = bus.get('route_id', '')
             matched_route_id = find_route_by_name(realtime_route_id)
 
-            if matched_route_id
-                for trip_id, trip_data in TRIPS.items()
-                    if trip_data['route_id'] == matched_route_id and stop_id in trip_data['stops_served']
+            if matched_route_id:
+                for trip_id, trip_data in TRIPS.items():
+                    if trip_data['route_id'] == matched_route_id and stop_id in trip_data['stops_served']:
                         static_trip = trip_id
                         route_id_to_use = matched_route_id
                         matched_by_route += 1
                         break
 
-        if not static_trip or static_trip not in TRIPS
+        if not static_trip or static_trip not in TRIPS:
             continue
 
         trip_info = TRIPS[static_trip]
 
-        if stop_id not in trip_info['stops_served']
+        if stop_id not in trip_info['stops_served']:
             continue
 
-        if trip_info['shape_id'] not in SHAPES
+        if trip_info['shape_id'] not in SHAPES:
             continue
 
         shape = SHAPES[trip_info['shape_id']]
         bus_idx, bus_dist = find_closest_point_on_shape(bus['latitude'], bus['longitude'], shape)
         stop_idx, stop_dist = find_closest_point_on_shape(stop_info['lat'], stop_info['lon'], shape)
 
-        if bus_idx  stop_idx
+        if bus_idx < stop_idx:
             road_dist = calculate_shape_distance(shape, bus_idx, stop_idx)
             total_dist = road_dist + bus_dist + stop_dist
 
-            if total_dist  20.0
+            if total_dist < 20.0:
                 arrival_min, estimated_speed, current_speed = calculate_arrival_time_smart(total_dist, bus['speed'])
 
-                if arrival_min = 90
-                    # FIX 1 Use short_name for display instead of long_name
+                if arrival_min <= 90:
+                    # FIX 1: Use short_name for display instead of long_name
                     route_short_name = ROUTES.get(trip_info['route_id'], {}).get('short_name', bus.get('route_id', 'Unknown'))
 
                     bus_status = bus.get('status', 'live')
                     cache_age = bus.get('cache_age_seconds', 0)
 
-                    print(f  ✓ {route_short_name} ({bus['vehicle_id']}) - {arrival_min}min ({total_dist.2f}km) [{bus_status}])
+                    print(f"  ✓ {route_short_name} ({bus['vehicle_id']}) - {arrival_min}min ({total_dist:.2f}km) [{bus_status}]")
 
                     approaching.append({
-                        'route' route_short_name,
-                        'arrival_minutes' arrival_min,
-                        'distance_km' round(total_dist, 2),
-                        'vehicle_id' bus['vehicle_id'],
-                        'current_speed_kmh' current_speed,
-                        'estimated_speed_kmh' estimated_speed,
-                        'status' bus_status,
-                        'last_update_seconds' cache_age
+                        'route': route_short_name,
+                        'arrival_minutes': arrival_min,
+                        'distance_km': round(total_dist, 2),
+                        'vehicle_id': bus['vehicle_id'],
+                        'current_speed_kmh': current_speed,
+                        'estimated_speed_kmh': estimated_speed,
+                        'status': bus_status,
+                        'last_update_seconds': cache_age
                     })
 
-    print(fnMatched {matched_exact} exact + {matched_fuzzy} fuzzy + {matched_by_route} by route)
-    print(fTotal approaching {len(approaching)})
-    print(f{'='80}n)
+    print(f"\nMatched: {matched_exact} exact + {matched_fuzzy} fuzzy + {matched_by_route} by route")
+    print(f"Total approaching: {len(approaching)}")
+    print(f"{'='*80}\n")
 
-    approaching.sort(key=lambda x x['arrival_minutes'])
+    approaching.sort(key=lambda x: x['arrival_minutes'])
 
     return jsonify({
-        stop_id stop_id,
-        stop_name stop_info['name'],
-        stop_location {lat stop_info['lat'], lon stop_info['lon']},
-        buses approaching[10],
-        total_approaching len(approaching),
-        # FIX 3 Malaysia time
-        timestamp datetime.now(MYT).strftime(%Y-%m-%d %H%M%S)
+        "stop_id": stop_id,
+        "stop_name": stop_info['name'],
+        "stop_location": {"lat": stop_info['lat'], "lon": stop_info['lon']},
+        "buses": approaching[:10],
+        "total_approaching": len(approaching),
+        # FIX 3: Malaysia time
+        "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
 
-@app.route('reload')
-def reload_gtfs()
+@app.route('/reload')
+def reload_gtfs():
     return jsonify({
-        status success if download_and_load_gtfs() else error,
-        routes len(ROUTES),
-        stops len(STOPS),
-        trips len(TRIPS)
+        "status": "success" if download_and_load_gtfs() else "error",
+        "routes": len(ROUTES),
+        "stops": len(STOPS),
+        "trips": len(TRIPS)
     })
 
-@app.route('stats')
-def stats()
+@app.route('/stats')
+def stats():
     current_time = time.time()
-    # FIX 3 Fixed live_count calculation
-    live_count = sum(1 for v in BUS_CACHE.values() if v['visible'] and (current_time - v['last_seen'])  30)
+    # FIX 3: Fixed live_count calculation
+    live_count = sum(1 for v in BUS_CACHE.values() if v['visible'] and (current_time - v['last_seen']) < 30)
     cached_count = sum(1 for v in BUS_CACHE.values() if v['visible']) - live_count
 
     return jsonify({
-        routes len(ROUTES),
-        stops len(STOPS),
-        shapes len(SHAPES),
-        trips len(TRIPS),
-        buses_live live_count,
-        buses_cached cached_count,
-        buses_total len(BUS_CACHE),
-        timestamp datetime.now(MYT).strftime(%Y-%m-%d %H%M%S)
+        "routes": len(ROUTES),
+        "stops": len(STOPS),
+        "shapes": len(SHAPES),
+        "trips": len(TRIPS),
+        "buses_live": live_count,
+        "buses_cached": cached_count,
+        "buses_total": len(BUS_CACHE),
+        "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
 
-@app.route('routeroute_short_name')
-def get_route_info(route_short_name)
-    for rid, rinfo in ROUTES.items()
-        if rinfo['short_name'] == route_short_name
+@app.route('/route/<route_short_name>')
+def get_route_info(route_short_name):
+    for rid, rinfo in ROUTES.items():
+        if rinfo['short_name'] == route_short_name:
             return jsonify({
-                route_id rid,
-                short_name rinfo['short_name'],
-                long_name rinfo['long_name'],
-                shapes_count len(rinfo['shapes'])
+                "route_id": rid,
+                "short_name": rinfo['short_name'],
+                "long_name": rinfo['long_name'],
+                "shapes_count": len(rinfo['shapes'])
             })
-    return jsonify({error Route not found}), 404
+    return jsonify({"error": "Route not found"}), 404
 
 # ============================================
 # DEBUG ENDPOINTS
 # ============================================
 
-@app.route('debugstopstop_id')
-def debug_stop(stop_id)
-    if stop_id not in STOPS
-        return jsonify({error Stop not found}), 404
+@app.route('/debug/stop/<stop_id>')
+def debug_stop(stop_id):
+    if stop_id not in STOPS:
+        return jsonify({"error": "Stop not found"}), 404
 
     stop_info = STOPS[stop_id]
 
     serving_trips = []
-    for trip_id, trip_data in TRIPS.items()
-        if stop_id in trip_data['stops_served']
+    for trip_id, trip_data in TRIPS.items():
+        if stop_id in trip_data['stops_served']:
             serving_trips.append({
-                'trip_id' trip_id,
-                'route_id' trip_data['route_id'],
-                'route_short_name' ROUTES.get(trip_data['route_id'], {}).get('short_name', 'unknown')
+                'trip_id': trip_id,
+                'route_id': trip_data['route_id'],
+                'route_short_name': ROUTES.get(trip_data['route_id'], {}).get('short_name', 'unknown')
             })
 
     nearby_stops = []
-    for sid, sinfo in STOPS.items()
+    for sid, sinfo in STOPS.items():
         distance = haversine_distance(stop_info['lat'], stop_info['lon'], sinfo['lat'], sinfo['lon'])
-        if distance  0.5 and sid != stop_id
+        if distance < 0.5 and sid != stop_id:
             nearby_stops.append({
-                'stop_id' sid,
-                'name' sinfo['name'],
-                'distance_m' round(distance  1000)
+                'stop_id': sid,
+                'name': sinfo['name'],
+                'distance_m': round(distance * 1000)
             })
 
     return jsonify({
-        'stop_id' stop_id,
-        'name' stop_info['name'],
-        'location' {'lat' stop_info['lat'], 'lon' stop_info['lon']},
-        'trips_serving' len(serving_trips),
-        'sample_trips' serving_trips[5],
-        'nearby_stops' sorted(nearby_stops, key=lambda x x['distance_m'])[10]
+        'stop_id': stop_id,
+        'name': stop_info['name'],
+        'location': {'lat': stop_info['lat'], 'lon': stop_info['lon']},
+        'trips_serving': len(serving_trips),
+        'sample_trips': serving_trips[:5],
+        'nearby_stops': sorted(nearby_stops, key=lambda x: x['distance_m'])[:10]
     })
 
-@app.route('debugrouteroute_short_namestops')
-def debug_route_stops(route_short_name)
+@app.route('/debug/route/<route_short_name>/stops')
+def debug_route_stops(route_short_name):
     route_id = None
-    for rid, rinfo in ROUTES.items()
-        if rinfo['short_name'] == route_short_name
+    for rid, rinfo in ROUTES.items():
+        if rinfo['short_name'] == route_short_name:
             route_id = rid
             break
 
-    if not route_id
-        return jsonify({error Route not found}), 404
+    if not route_id:
+        return jsonify({"error": "Route not found"}), 404
 
     stops_served = set()
-    for trip_id, trip_data in TRIPS.items()
-        if trip_data['route_id'] == route_id
+    for trip_id, trip_data in TRIPS.items():
+        if trip_data['route_id'] == route_id:
             stops_served.update(trip_data['stops_served'])
 
     stop_list = []
-    for stop_id in stops_served
-        if stop_id in STOPS
+    for stop_id in stops_served:
+        if stop_id in STOPS:
             stop_list.append({
-                'stop_id' stop_id,
-                'name' STOPS[stop_id]['name'],
-                'lat' STOPS[stop_id]['lat'],
-                'lon' STOPS[stop_id]['lon']
+                'stop_id': stop_id,
+                'name': STOPS[stop_id]['name'],
+                'lat': STOPS[stop_id]['lat'],
+                'lon': STOPS[stop_id]['lon']
             })
 
     return jsonify({
-        'route_id' route_id,
-        'short_name' route_short_name,
-        'long_name' ROUTES[route_id]['long_name'],
-        'total_stops' len(stop_list),
-        'stops' sorted(stop_list, key=lambda x x['name'])
+        'route_id': route_id,
+        'short_name': route_short_name,
+        'long_name': ROUTES[route_id]['long_name'],
+        'total_stops': len(stop_list),
+        'stops': sorted(stop_list, key=lambda x: x['name'])
     })
 
-@app.route('debugactive-routes')
-def active_routes()
+@app.route('/debug/active-routes')
+def active_routes():
     live_buses = fetch_live_buses()
 
-    if not live_buses
-        return jsonify({error No live buses, api_url GTFS_REALTIME_URL}), 500
+    if not live_buses:
+        return jsonify({"error": "No live buses", "api_url": GTFS_REALTIME_URL}), 500
 
     route_counts = {}
-    for bus in live_buses
+    for bus in live_buses:
         realtime_route_id = bus.get('route_id', 'Unknown')
         matched_route_id = find_route_by_name(realtime_route_id)
 
-        if matched_route_id and matched_route_id in ROUTES
+        if matched_route_id and matched_route_id in ROUTES:
             display_name = ROUTES[matched_route_id].get('short_name', realtime_route_id)
-        else
+        else:
             display_name = realtime_route_id
 
-        if display_name not in route_counts
+        if display_name not in route_counts:
             route_counts[display_name] = {
-                'count' 0,
-                'realtime_id' realtime_route_id,
-                'matched' matched_route_id is not None
+                'count': 0,
+                'realtime_id': realtime_route_id,
+                'matched': matched_route_id is not None
             }
         route_counts[display_name]['count'] += 1
 
-    sorted_routes = sorted(route_counts.items(), key=lambda x x[1]['count'], reverse=True)
+    sorted_routes = sorted(route_counts.items(), key=lambda x: x[1]['count'], reverse=True)
 
     return jsonify({
-        'total_buses' len(live_buses),
-        'total_routes' len(route_counts),
-        'api_url' GTFS_REALTIME_URL,
-        'routes' [
-            {'route_name' name, 'count' data['count'], 'matched' data['matched']}
+        'total_buses': len(live_buses),
+        'total_routes': len(route_counts),
+        'api_url': GTFS_REALTIME_URL,
+        'routes': [
+            {'route_name': name, 'count': data['count'], 'matched': data['matched']}
             for name, data in sorted_routes
         ]
     })
 
-@app.route('debugfind-any-bus')
-def find_any_bus()
+@app.route('/debug/find-any-bus')
+def find_any_bus():
     import random
     live_buses = fetch_live_buses()
 
-    if not live_buses
-        return jsonify({error No live buses, tried_url GTFS_REALTIME_URL}), 500
+    if not live_buses:
+        return jsonify({"error": "No live buses", "tried_url": GTFS_REALTIME_URL}), 500
 
-    for test_bus in live_buses[20]
-        if not test_bus.get('trip_id')
+    for test_bus in live_buses[:20]:
+        if not test_bus.get('trip_id'):
             continue
 
         static_trip = find_matching_trip(test_bus['trip_id'])
 
-        if static_trip and static_trip in TRIPS
+        if static_trip and static_trip in TRIPS:
             trip_info = TRIPS[static_trip]
             stops_served = list(trip_info['stops_served'])
 
-            if stops_served
+            if stops_served:
                 test_stop_id = random.choice(stops_served)
                 route_name = ROUTES.get(trip_info['route_id'], {}).get('short_name', trip_info['route_id'])
 
                 return jsonify({
-                    'test_bus' {
-                        'vehicle_id' test_bus['vehicle_id'],
-                        'route' route_name,
-                        'trip_id' test_bus['trip_id'],
-                        'matched_static_trip' static_trip,
-                        'latitude' test_bus['latitude'],
-                        'longitude' test_bus['longitude']
+                    'test_bus': {
+                        'vehicle_id': test_bus['vehicle_id'],
+                        'route': route_name,
+                        'trip_id': test_bus['trip_id'],
+                        'matched_static_trip': static_trip,
+                        'latitude': test_bus['latitude'],
+                        'longitude': test_bus['longitude']
                     },
-                    'test_stop' {
-                        'stop_id' test_stop_id,
-                        'name' STOPS.get(test_stop_id, {}).get('name', 'unknown')
+                    'test_stop': {
+                        'stop_id': test_stop_id,
+                        'name': STOPS.get(test_stop_id, {}).get('name', 'unknown')
                     },
-                    'test_url' fbus{test_stop_id}
+                    'test_url': f"/bus/{test_stop_id}"
                 })
 
-    return jsonify({error No valid test cases found}), 500
+    return jsonify({"error": "No valid test cases found"}), 500
 
-@app.route('debugrouteroute_short_namebuses')
-def debug_route_buses(route_short_name)
+@app.route('/debug/route/<route_short_name>/buses')
+def debug_route_buses(route_short_name):
     route_id = None
-    for rid, rinfo in ROUTES.items()
-        if rinfo['short_name'] == route_short_name
+    for rid, rinfo in ROUTES.items():
+        if rinfo['short_name'] == route_short_name:
             route_id = rid
             break
 
-    if not route_id
-        return jsonify({error Route not found}), 404
+    if not route_id:
+        return jsonify({"error": "Route not found"}), 404
 
     all_buses = get_all_buses_with_cache()
 
     route_buses = []
-    for bus in all_buses
-        if bus['route_id'] == route_id
+    for bus in all_buses:
+        if bus['route_id'] == route_id:
             route_buses.append({
-                'vehicle_id' bus['vehicle_id'],
-                'trip_id' bus['trip_id'],
-                'latitude' bus['latitude'],
-                'longitude' bus['longitude'],
-                'speed_kmh' round(bus['speed']  3.6, 1) if bus['speed'] else 0,
-                'status' bus.get('status', 'unknown'),
-                'last_update_seconds' bus.get('cache_age_seconds', 0)
+                'vehicle_id': bus['vehicle_id'],
+                'trip_id': bus['trip_id'],
+                'latitude': bus['latitude'],
+                'longitude': bus['longitude'],
+                'speed_kmh': round(bus['speed'] * 3.6, 1) if bus['speed'] else 0,
+                'status': bus.get('status', 'unknown'),
+                'last_update_seconds': bus.get('cache_age_seconds', 0)
             })
 
     return jsonify({
-        'route_short_name' route_short_name,
-        'route_id' route_id,
-        'active_buses' len(route_buses),
-        'buses' route_buses,
-        'timestamp' datetime.now(MYT).strftime(%Y-%m-%d %H%M%S)
+        'route_short_name': route_short_name,
+        'route_id': route_id,
+        'active_buses': len(route_buses),
+        'buses': route_buses,
+        'timestamp': datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
 
-@app.route('debugcache')
-def debug_cache()
+@app.route('/debug/cache')
+def debug_cache():
     current_time = time.time()
     cache_info = []
 
-    for vehicle_id, cache_entry in BUS_CACHE.items()
+    for vehicle_id, cache_entry in BUS_CACHE.items():
         age = current_time - cache_entry['last_seen']
         bus_data = cache_entry['data']
 
         cache_info.append({
-            'vehicle_id' vehicle_id,
-            'route' ROUTES.get(bus_data['route_id'], {}).get('short_name', bus_data['route_id']),
-            'age_seconds' int(age),
-            'status' 'live' if age  30 else 'cached',
-            'visible' cache_entry['visible']
+            'vehicle_id': vehicle_id,
+            'route': ROUTES.get(bus_data['route_id'], {}).get('short_name', bus_data['route_id']),
+            'age_seconds': int(age),
+            'status': 'live' if age < 30 else 'cached',
+            'visible': cache_entry['visible']
         })
 
     return jsonify({
-        'total_cached' len(BUS_CACHE),
-        'cache_timeout_seconds' CACHE_TIMEOUT,
-        'buses' sorted(cache_info, key=lambda x x['age_seconds'])
+        'total_cached': len(BUS_CACHE),
+        'cache_timeout_seconds': CACHE_TIMEOUT,
+        'buses': sorted(cache_info, key=lambda x: x['age_seconds'])
     })
 
-@app.route('debugraw-feed')
-def debug_raw_feed()
-    try
+@app.route('/debug/raw-feed')
+def debug_raw_feed():
+    try:
         response = requests.get(GTFS_REALTIME_URL, timeout=10, allow_redirects=True)
         feed = gtfs_realtime_pb2.FeedMessage()
         feed.ParseFromString(response.content)
@@ -766,279 +766,279 @@ def debug_raw_feed()
         alert_count = 0
         sample_vehicles = []
 
-        for entity in feed.entity
-            if entity.HasField('vehicle')
+        for entity in feed.entity:
+            if entity.HasField('vehicle'):
                 vehicle_count += 1
-                if len(sample_vehicles)  3
+                if len(sample_vehicles) < 3:
                     v = entity.vehicle
                     sample_vehicles.append({
-                        'id' entity.id,
-                        'vehicle_id' v.vehicle.id if v.HasField('vehicle') else 'none',
-                        'trip_id' v.trip.trip_id if v.HasField('trip') else 'none',
-                        'route_id' v.trip.route_id if v.HasField('trip') else 'none',
-                        'latitude' v.position.latitude if v.HasField('position') else 0,
-                        'longitude' v.position.longitude if v.HasField('position') else 0,
+                        'id': entity.id,
+                        'vehicle_id': v.vehicle.id if v.HasField('vehicle') else 'none',
+                        'trip_id': v.trip.trip_id if v.HasField('trip') else 'none',
+                        'route_id': v.trip.route_id if v.HasField('trip') else 'none',
+                        'latitude': v.position.latitude if v.HasField('position') else 0,
+                        'longitude': v.position.longitude if v.HasField('position') else 0,
                     })
-            if entity.HasField('trip_update')
+            if entity.HasField('trip_update'):
                 trip_update_count += 1
-            if entity.HasField('alert')
+            if entity.HasField('alert'):
                 alert_count += 1
 
         return jsonify({
-            'status_code' response.status_code,
-            'content_length' len(response.content),
-            'total_entities' len(feed.entity),
-            'vehicles' vehicle_count,
-            'trip_updates' trip_update_count,
-            'alerts' alert_count,
-            'sample_vehicles' sample_vehicles,
-            'timestamp' datetime.now(MYT).strftime(%Y-%m-%d %H%M%S)
+            'status_code': response.status_code,
+            'content_length': len(response.content),
+            'total_entities': len(feed.entity),
+            'vehicles': vehicle_count,
+            'trip_updates': trip_update_count,
+            'alerts': alert_count,
+            'sample_vehicles': sample_vehicles,
+            'timestamp': datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
         })
 
-    except Exception as e
-        return jsonify({'error' str(e)}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-@app.route('debugtest-all-categories')
-def test_all_categories()
+@app.route('/debug/test-all-categories')
+def test_all_categories():
     categories = ['rapid-bus-kl', 'rapid-bus-penang', 'rapid-bus-kuantan', 'rapid-bus-mrtfeeder']
     results = {}
 
-    for category in categories
-        url = fhttpsapi.data.gov.mygtfs-realtimevehicle-positionprasaranacategory={category}
-        try
+    for category in categories:
+        url = f"https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana?category={category}"
+        try:
             response = requests.get(url, timeout=10)
             feed = gtfs_realtime_pb2.FeedMessage()
             feed.ParseFromString(response.content)
             results[category] = {
-                'status' response.status_code,
-                'size' len(response.content),
-                'entities' len(feed.entity),
-                'vehicles' sum(1 for e in feed.entity if e.HasField('vehicle'))
+                'status': response.status_code,
+                'size': len(response.content),
+                'entities': len(feed.entity),
+                'vehicles': sum(1 for e in feed.entity if e.HasField('vehicle'))
             }
-        except Exception as e
-            results[category] = {'error' str(e)}
+        except Exception as e:
+            results[category] = {'error': str(e)}
 
     return jsonify(results)
 
-@app.route('debugroute-mismatch')
-def debug_route_mismatch()
+@app.route('/debug/route-mismatch')
+def debug_route_mismatch():
     live_buses = fetch_live_buses()
 
-    if not live_buses
-        return jsonify({error No buses}), 500
+    if not live_buses:
+        return jsonify({"error": "No buses"}), 500
 
     realtime_routes = set()
     sample_buses = []
 
-    for bus in live_buses[10]
+    for bus in live_buses[:10]:
         route_id = bus.get('route_id')
-        if route_id
+        if route_id:
             realtime_routes.add(route_id)
         sample_buses.append({
-            'vehicle_id' bus['vehicle_id'],
-            'route_id' route_id,
-            'trip_id' bus.get('trip_id')
+            'vehicle_id': bus['vehicle_id'],
+            'route_id': route_id,
+            'trip_id': bus.get('trip_id')
         })
 
     matching = realtime_routes & set(ROUTES.keys())
 
     return jsonify({
-        'realtime_route_ids' sorted(list(realtime_routes)),
-        'static_route_ids' list(ROUTES.keys())[20],
-        'matching_routes' list(matching),
-        'match_count' len(matching),
-        'sample_buses' sample_buses,
-        'realtime_url' GTFS_REALTIME_URL,
-        'static_url' GTFS_STATIC_URL
+        'realtime_route_ids': sorted(list(realtime_routes)),
+        'static_route_ids': list(ROUTES.keys())[:20],
+        'matching_routes': list(matching),
+        'match_count': len(matching),
+        'sample_buses': sample_buses,
+        'realtime_url': GTFS_REALTIME_URL,
+        'static_url': GTFS_STATIC_URL
     })
 
-@app.route('debugstatic-routes')
-def debug_static_routes()
+@app.route('/debug/static-routes')
+def debug_static_routes():
     sample = []
-    for route_id, info in list(ROUTES.items())[20]
+    for route_id, info in list(ROUTES.items())[:20]:
         sample.append({
-            'route_id' route_id,
-            'short_name' info.get('short_name'),
-            'long_name' info.get('long_name')
+            'route_id': route_id,
+            'short_name': info.get('short_name'),
+            'long_name': info.get('long_name')
         })
 
     return jsonify({
-        'total_routes' len(ROUTES),
-        'sample_routes' sample,
-        'static_url' GTFS_STATIC_URL
+        'total_routes': len(ROUTES),
+        'sample_routes': sample,
+        'static_url': GTFS_STATIC_URL
     })
 
-@app.route('debugt450')
-def debug_t450()
-    Check T450 route status specifically
+@app.route('/debug/t450')
+def debug_t450():
+    """Check T450 route status specifically"""
     live_buses = fetch_live_buses()
     all_buses = get_all_buses_with_cache()
 
     # Find T450 route_id in static data
     t450_route_id = None
-    for rid, rinfo in ROUTES.items()
-        if rinfo.get('short_name') == 'T450'
+    for rid, rinfo in ROUTES.items():
+        if rinfo.get('short_name') == 'T450':
             t450_route_id = rid
             break
 
     # Check if any live bus is on T450
     t450_buses = []
-    for bus in all_buses
-        if bus.get('route_id') == t450_route_id or bus.get('route_id') == 'T4508'
+    for bus in all_buses:
+        if bus.get('route_id') == t450_route_id or bus.get('route_id') == 'T4508':
             t450_buses.append({
-                'vehicle_id' bus['vehicle_id'],
-                'trip_id' bus['trip_id'],
-                'latitude' bus['latitude'],
-                'longitude' bus['longitude'],
-                'speed_kmh' round(bus['speed']  3.6, 1) if bus['speed'] else 0,
-                'status' bus.get('status', 'unknown'),
-                'last_update_seconds' bus.get('cache_age_seconds', 0)
+                'vehicle_id': bus['vehicle_id'],
+                'trip_id': bus['trip_id'],
+                'latitude': bus['latitude'],
+                'longitude': bus['longitude'],
+                'speed_kmh': round(bus['speed'] * 3.6, 1) if bus['speed'] else 0,
+                'status': bus.get('status', 'unknown'),
+                'last_update_seconds': bus.get('cache_age_seconds', 0)
             })
 
     # Check stop 1001609 in static data
     stop_info = STOPS.get('1001609', {})
     trips_serving = []
-    for trip_id, trip_data in TRIPS.items()
-        if trip_data['route_id'] == t450_route_id and '1001609' in trip_data['stops_served']
+    for trip_id, trip_data in TRIPS.items():
+        if trip_data['route_id'] == t450_route_id and '1001609' in trip_data['stops_served']:
             trips_serving.append(trip_id)
 
     return jsonify({
-        't450_route_id_in_static' t450_route_id,
-        't450_active_buses' len(t450_buses),
-        't450_buses' t450_buses,
-        'stop_1001609' stop_info,
-        'trips_serving_stop' len(trips_serving),
-        'sample_trips' trips_serving[3],
-        'total_live_buses' len(live_buses),
-        'timestamp' datetime.now(MYT).strftime(%Y-%m-%d %H%M%S)
+        't450_route_id_in_static': t450_route_id,
+        't450_active_buses': len(t450_buses),
+        't450_buses': t450_buses,
+        'stop_1001609': stop_info,
+        'trips_serving_stop': len(trips_serving),
+        'sample_trips': trips_serving[:3],
+        'total_live_buses': len(live_buses),
+        'timestamp': datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
 
-@app.route('debugfind-t450-raw')
-def find_t450_raw()
-    Find any bus mentioning T450 in raw feed
+@app.route('/debug/find-t450-raw')
+def find_t450_raw():
+    """Find any bus mentioning T450 in raw feed"""
     live_buses = fetch_live_buses()
 
     t450_related = []
-    for bus in live_buses
+    for bus in live_buses:
         route_id = bus.get('route_id', '')
         trip_id = bus.get('trip_id', '')
-        if 'T450' in str(route_id) or 'T450' in str(trip_id) or 'T4508' in str(route_id) or 'T4508' in str(trip_id)
+        if 'T450' in str(route_id) or 'T450' in str(trip_id) or 'T4508' in str(route_id) or 'T4508' in str(trip_id):
             t450_related.append({
-                'vehicle_id' bus['vehicle_id'],
-                'route_id' route_id,
-                'trip_id' trip_id,
-                'latitude' bus['latitude'],
-                'longitude' bus['longitude'],
-                'speed_kmh' round(bus['speed']  3.6, 1) if bus['speed'] else 0
+                'vehicle_id': bus['vehicle_id'],
+                'route_id': route_id,
+                'trip_id': trip_id,
+                'latitude': bus['latitude'],
+                'longitude': bus['longitude'],
+                'speed_kmh': round(bus['speed'] * 3.6, 1) if bus['speed'] else 0
             })
 
     return jsonify({
-        'total_live_buses' len(live_buses),
-        't450_related_buses' len(t450_related),
-        'buses' t450_related,
-        'timestamp' datetime.now(MYT).strftime(%Y-%m-%d %H%M%S)
+        'total_live_buses': len(live_buses),
+        't450_related_buses': len(t450_related),
+        'buses': t450_related,
+        'timestamp': datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
 
-@app.route('debugall-route-ids')
-def all_route_ids()
-    Dump every unique route_id in the live feed
+@app.route('/debug/all-route-ids')
+def all_route_ids():
+    """Dump every unique route_id in the live feed"""
     live_buses = fetch_live_buses()
 
     route_ids = {}
-    for bus in live_buses
+    for bus in live_buses:
         rid = bus.get('route_id', 'unknown')
         trip_id = bus.get('trip_id', '')
-        if rid not in route_ids
+        if rid not in route_ids:
             route_ids[rid] = {
-                'count' 0,
-                'sample_trip_id' trip_id
+                'count': 0,
+                'sample_trip_id': trip_id
             }
         route_ids[rid]['count'] += 1
 
     return jsonify({
-        'total_buses' len(live_buses),
-        'unique_route_ids' len(route_ids),
-        'routes' sorted(route_ids.items(), key=lambda x x[1]['count'], reverse=True),
-        'timestamp' datetime.now(MYT).strftime(%Y-%m-%d %H%M%S)
+        'total_buses': len(live_buses),
+        'unique_route_ids': len(route_ids),
+        'routes': sorted(route_ids.items(), key=lambda x: x[1]['count'], reverse=True),
+        'timestamp': datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
 
-@app.route('debugall-buses')
-def debug_all_buses()
-    Show ALL active buses with full details
+@app.route('/debug/all-buses')
+def debug_all_buses():
+    """Show ALL active buses with full details"""
     live_buses = fetch_live_buses()
 
     detailed_buses = []
-    for bus in live_buses
+    for bus in live_buses:
         route_id = bus.get('route_id', 'unknown')
 
         # Get short name if possible
         short_name = ROUTES.get(route_id, {}).get('short_name', route_id)
 
         detailed_buses.append({
-            'number_plate' bus.get('vehicle_id', 'unknown'),
-            'route_id_realtime' route_id,
-            'route_short_name' short_name,
-            'trip_id' bus.get('trip_id', 'unknown'),
-            'latitude' bus.get('latitude', 0),
-            'longitude' bus.get('longitude', 0),
-            'speed_kmh' round(bus.get('speed', 0)  3.6, 1),
-            'maps_link' fhttpswww.google.commapsq={bus.get('latitude', 0)},{bus.get('longitude', 0)}
+            'number_plate': bus.get('vehicle_id', 'unknown'),
+            'route_id_realtime': route_id,
+            'route_short_name': short_name,
+            'trip_id': bus.get('trip_id', 'unknown'),
+            'latitude': bus.get('latitude', 0),
+            'longitude': bus.get('longitude', 0),
+            'speed_kmh': round(bus.get('speed', 0) * 3.6, 1),
+            'maps_link': f"https://www.google.com/maps?q={bus.get('latitude', 0)},{bus.get('longitude', 0)}"
         })
 
     # Sort by route name
-    detailed_buses.sort(key=lambda x x['route_id_realtime'])
+    detailed_buses.sort(key=lambda x: x['route_id_realtime'])
 
     return jsonify({
-        'total_buses' len(detailed_buses),
-        'timestamp' datetime.now(MYT).strftime(%Y-%m-%d %H%M%S),
-        'buses' detailed_buses
+        'total_buses': len(detailed_buses),
+        'timestamp': datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S"),
+        'buses': detailed_buses
     })
 
-@app.route('debugkioskroute_name')
-def debug_kiosk(route_name)
-    Test kiosk API for any route
+@app.route('/debug/kiosk/<route_name>')
+def debug_kiosk(route_name):
+    """Test kiosk API for any route"""
     buses = fetch_kiosk_buses(route_name)
 
     return jsonify({
-        'route' route_name,
-        'total_buses' len(buses),
-        'buses' [{
-            'vehicle_id' b['vehicle_id'],
-            'latitude' b['latitude'],
-            'longitude' b['longitude'],
-            'speed_kmh' round(b['speed']  3.6, 1),
-            'maps_link' fhttpswww.google.commapsq={b['latitude']},{b['longitude']}
+        'route': route_name,
+        'total_buses': len(buses),
+        'buses': [{
+            'vehicle_id': b['vehicle_id'],
+            'latitude': b['latitude'],
+            'longitude': b['longitude'],
+            'speed_kmh': round(b['speed'] * 3.6, 1),
+            'maps_link': f"https://www.google.com/maps?q={b['latitude']},{b['longitude']}"
         } for b in buses],
-        'timestamp' datetime.now(MYT).strftime(%Y-%m-%d %H%M%S)
+        'timestamp': datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
 
-@app.route('debugkiosk-test')
-def debug_kiosk_test()
-    Test if PythonAnywhere can reach Prasarana kiosk server
+@app.route('/debug/kiosk-test')
+def debug_kiosk_test():
+    """Test if PythonAnywhere can reach Prasarana kiosk server"""
     results = {}
 
-    # Test 1 Basic HTTP GET
-    try
+    # Test 1: Basic HTTP GET
+    try:
         r = requests.get(
-            'httpsrapidbus-socketio-avl.prasarana.com.mysocket.ioEIO=3&transport=polling',
+            'https://rapidbus-socketio-avl.prasarana.com.my/socket.io/?EIO=3&transport=polling',
             timeout=10
         )
         results['http_polling'] = {
-            'status' r.status_code,
-            'response' r.text[200]
+            'status': r.status_code,
+            'response': r.text[:200]
         }
-    except Exception as e
-        results['http_polling'] = {'error' str(e)}
+    except Exception as e:
+        results['http_polling'] = {'error': str(e)}
 
-    # Test 2 Can we reach the kiosk page at all
-    try
-        r = requests.get('httpsmyrapidbus.prasarana.com.mykiosk', timeout=10)
+    # Test 2: Can we reach the kiosk page at all?
+    try:
+        r = requests.get('https://myrapidbus.prasarana.com.my/kiosk', timeout=10)
         results['kiosk_page'] = {
-            'status' r.status_code,
-            'reachable' True
+            'status': r.status_code,
+            'reachable': True
         }
-    except Exception as e
-        results['kiosk_page'] = {'error' str(e)}
+    except Exception as e:
+        results['kiosk_page'] = {'error': str(e)}
 
     return jsonify(results)
 
@@ -1046,11 +1046,11 @@ def debug_kiosk_test()
 # STARTUP
 # ============================================
 
-print(n + =60)
-print(STARTING FLASK APP)
-print(=60)
+print("\n" + "="*60)
+print("STARTING FLASK APP")
+print("="*60)
 download_and_load_gtfs()
-print(=60 + n)
+print("="*60 + "\n")
 
-if __name__ == '__main__'
+if __name__ == '__main__':
     app.run(debug=True)
