@@ -481,12 +481,15 @@ def run_websocket():
                 on_error=on_error,
                 on_close=on_close
             )
-            ws_app.run_forever()  # ← THIS LINE WAS MISSING
+            ws_app.run_forever()  
+            print("[WS] run_forever() returned")
 
         except Exception as e:
-            print(f"[WS] Exception: {e}")
-            import traceback; traceback.print_exc()
-
+            print(f"[WS] EXCEPTION TYPE: {type(e).__name__}")
+            print(f"[WS] EXCEPTION MSG: {e}")
+            import traceback
+            traceback.print_exc()
+            
         print("[WS] Waiting 30s before next poll...")
         time.sleep(30)
 
