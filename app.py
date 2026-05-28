@@ -13,6 +13,7 @@ import base64
 import zlib
 import json
 import websocket
+import gzip
 
 app = Flask(__name__)
 
@@ -338,39 +339,17 @@ def get_fresh_sid():
         return None
 
 def decode_kiosk_payload(raw_data):
-    """Decode bus data from Prasarana — try multiple formats"""
-    # Log raw data first so we can see what format it actually is
-    print(f"[WS] Raw payload (first 100): {str(raw_data)[:100]}")
-    
-    # Try 1: Base64 + zlib (original format)
+    """Decode Base64 + Gzip compressed bus data from Prasarana"""
     try:
+        import gzip
         decoded = base64.b64decode(raw_data)
-        decompressed = zlib.decompress(decoded)
+        decompressed = gzip.decompress(decoded)
         buses = json.loads(decompressed.decode('utf-8'))
-        print(f"[WS] Decoded via base64+zlib: {len(buses)} buses")
+        print(f"[WS] Decoded {len(buses)} buses")
         return buses
     except Exception as e:
-        print(f"[WS] base64+zlib failed: {e}")
-
-    # Try 2: Raw base64 (no compression)
-    try:
-        decoded = base64.b64decode(raw_data)
-        buses = json.loads(decoded.decode('utf-8'))
-        print(f"[WS] Decoded via base64 only: {len(buses)} buses")
-        return buses
-    except Exception as e:
-        print(f"[WS] base64 only failed: {e}")
-
-    # Try 3: Already plain JSON string
-    try:
-        buses = json.loads(raw_data)
-        print(f"[WS] Decoded via plain JSON: {len(buses)} buses")
-        return buses
-    except Exception as e:
-        print(f"[WS] plain JSON failed: {e}")
-
-    print(f"[WS] All decode methods failed")
-    return []
+        print(f"[WS] Decode error: {e}")
+        return []
 
 def process_kiosk_buses(buses):
     """Store decoded kiosk buses into KIOSK_CACHE"""
@@ -473,6 +452,12 @@ def run_websocket():
                 if message == "2":
                     ws.send("3")
                     return
+                
+                if message == "6":
+                    return  # Socket.IO noop, ignore
+                    
+                if message.startswith("40"):
+                    return  # Socket.IO connect ack, ignore
 
                 if "onFts-client" in message:
                     try:
