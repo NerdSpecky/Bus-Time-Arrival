@@ -485,7 +485,7 @@ def run_websocket():
                 on_close=on_close
             )
 
-            ws_app.run_forever(ping_interval=20, ping_timeout=10)
+            ws_app.run_forever(ping_interval=0, ping_timeout=None)
 
         except Exception as e:
             print(f"[WS] Exception: {e}")
