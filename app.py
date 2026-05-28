@@ -10,7 +10,6 @@ from datetime import datetime
 import pytz
 import math
 import base64
-import zlib
 import json
 import websocket
 import gzip
