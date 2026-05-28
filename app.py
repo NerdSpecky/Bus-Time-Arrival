@@ -396,7 +396,7 @@ def build_subscribe_payload(sid, route, provider):
     return msg
 
 def run_websocket():
-    """Run persistent WebSocket connection to Prasarana kiosk"""
+    """Poll Prasarana kiosk WebSocket every 30 seconds"""
     global ws_connected, ws_last_message
 
     print("[WS] Waiting 5s before first connect...")
@@ -408,7 +408,6 @@ def run_websocket():
             sid = None
             try:
                 r = requests.get(POLLING_URL, timeout=15)
-                print(f"[WS] Polling response: {r.status_code} - {r.text[:100]}")
                 raw = r.text
                 json_start = raw.find('{')
                 if json_start != -1:
@@ -424,7 +423,7 @@ def run_websocket():
                 continue
 
             ws_url = f"wss://rapidbus-socketio-avl.prasarana.com.my/socket.io/?EIO=3&transport=websocket&sid={sid}"
-            print(f"[WS] Connecting to: {ws_url}")
+            print(f"[WS] Connecting...")
 
             def on_open(ws):
                 global ws_connected
@@ -435,7 +434,6 @@ def run_websocket():
             def on_message(ws, message):
                 global ws_last_message
                 ws_last_message = time.time()
-                print(f"[WS] Raw message ({len(message)} bytes): {message[:150]}")
 
                 if message == "3probe":
                     ws.send("5")
@@ -449,23 +447,22 @@ def run_websocket():
                 if message == "2":
                     ws.send("3")
                     return
-                
-                if message == "6":
-                    return  # Socket.IO noop, ignore
-                    
-                if message.startswith("40"):
-                    return  # Socket.IO connect ack, ignore
+
+                if message in ("6", "40", "41"):
+                    if message == "41":
+                        print("[WS] Server closing connection (41) — closing cleanly")
+                        ws.close()
+                    return
 
                 if "onFts-client" in message:
                     try:
                         idx = message.find('[')
                         arr = json.loads(message[idx:])
                         if len(arr) >= 2 and arr[0] == "onFts-client":
-                            raw_data = arr[1]
-                            buses = decode_kiosk_payload(raw_data)
+                            buses = decode_kiosk_payload(arr[1])
                             process_kiosk_buses(buses)
                     except Exception as e:
-                        print(f"[WS] Parse error: {e} | msg: {message[:100]}")
+                        print(f"[WS] Parse error: {e}")
 
             def on_error(ws, error):
                 global ws_connected
@@ -475,7 +472,7 @@ def run_websocket():
             def on_close(ws, close_status_code, close_msg):
                 global ws_connected
                 ws_connected = False
-                print(f"[WS] Closed: {close_status_code} {close_msg}")
+                print(f"[WS] Closed")
 
             ws_app = websocket.WebSocketApp(
                 ws_url,
@@ -484,14 +481,14 @@ def run_websocket():
                 on_error=on_error,
                 on_close=on_close
             )
-
+            ws_app.run_forever()  # ← THIS LINE WAS MISSING
 
         except Exception as e:
             print(f"[WS] Exception: {e}")
             import traceback; traceback.print_exc()
 
-        print("[WS] Reconnecting in 15s...")
-        time.sleep(15)
+        print("[WS] Waiting 30s before next poll...")
+        time.sleep(30)
 
 def start_websocket_thread():
     """Start WebSocket in background thread"""
