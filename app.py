@@ -338,15 +338,39 @@ def get_fresh_sid():
         return None
 
 def decode_kiosk_payload(raw_data):
-    """Decode Base64 + Zlib compressed bus data from Prasarana"""
+    """Decode bus data from Prasarana — try multiple formats"""
+    # Log raw data first so we can see what format it actually is
+    print(f"[WS] Raw payload (first 100): {str(raw_data)[:100]}")
+    
+    # Try 1: Base64 + zlib (original format)
     try:
         decoded = base64.b64decode(raw_data)
         decompressed = zlib.decompress(decoded)
         buses = json.loads(decompressed.decode('utf-8'))
+        print(f"[WS] Decoded via base64+zlib: {len(buses)} buses")
         return buses
     except Exception as e:
-        print(f"✗ Decode error: {e}")
-        return []
+        print(f"[WS] base64+zlib failed: {e}")
+
+    # Try 2: Raw base64 (no compression)
+    try:
+        decoded = base64.b64decode(raw_data)
+        buses = json.loads(decoded.decode('utf-8'))
+        print(f"[WS] Decoded via base64 only: {len(buses)} buses")
+        return buses
+    except Exception as e:
+        print(f"[WS] base64 only failed: {e}")
+
+    # Try 3: Already plain JSON string
+    try:
+        buses = json.loads(raw_data)
+        print(f"[WS] Decoded via plain JSON: {len(buses)} buses")
+        return buses
+    except Exception as e:
+        print(f"[WS] plain JSON failed: {e}")
+
+    print(f"[WS] All decode methods failed")
+    return []
 
 def process_kiosk_buses(buses):
     """Store decoded kiosk buses into KIOSK_CACHE"""
@@ -435,7 +459,7 @@ def run_websocket():
             def on_message(ws, message):
                 global ws_last_message
                 ws_last_message = time.time()
-                print(f"[WS] Message: {message[:80]}")
+                print(f"[WS] Raw message ({len(message)} bytes): {message[:150]}")
 
                 if message == "3probe":
                     ws.send("5")
