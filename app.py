@@ -339,9 +339,7 @@ def get_fresh_sid():
         return None
 
 def decode_kiosk_payload(raw_data):
-    """Decode Base64 + Gzip compressed bus data from Prasarana"""
     try:
-        import gzip
         decoded = base64.b64decode(raw_data)
         decompressed = gzip.decompress(decoded)
         buses = json.loads(decompressed.decode('utf-8'))
