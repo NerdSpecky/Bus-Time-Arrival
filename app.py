@@ -399,10 +399,25 @@ def run_websocket():
     """Run persistent WebSocket connection to Prasarana kiosk"""
     global ws_connected, ws_last_message
 
+    print("[WS] Waiting 5s before first connect...")
+    time.sleep(5)
+
     while True:
         try:
             print("\n[WS] Getting fresh sid...")
-            sid = get_fresh_sid()
+            sid = None
+            try:
+                r = requests.get(POLLING_URL, timeout=15)
+                print(f"[WS] Polling response: {r.status_code} - {r.text[:100]}")
+                raw = r.text
+                json_start = raw.find('{')
+                if json_start != -1:
+                    handshake = json.loads(raw[json_start:raw.rfind('}')+1])
+                    sid = handshake.get('sid')
+                    print(f"[WS] Got sid: {sid}")
+            except Exception as e:
+                print(f"[WS] Polling failed: {e}")
+
             if not sid:
                 print("[WS] No sid, retrying in 30s...")
                 time.sleep(30)
@@ -415,18 +430,16 @@ def run_websocket():
                 global ws_connected
                 ws_connected = True
                 print("[WS] Connected!")
-                # Send Socket.IO probe
                 ws.send("2probe")
 
             def on_message(ws, message):
                 global ws_last_message
                 ws_last_message = time.time()
+                print(f"[WS] Message: {message[:80]}")
 
-                # Socket.IO v2 protocol handling
                 if message == "3probe":
-                    ws.send("5")  # upgrade complete
+                    ws.send("5")
                     print("[WS] Upgraded to WebSocket")
-                    # Now subscribe to all tracked routes
                     for route, provider in TRACKED_ROUTES.items():
                         payload = build_subscribe_payload(sid, route, provider)
                         ws.send(payload)
@@ -434,14 +447,11 @@ def run_websocket():
                     return
 
                 if message == "2":
-                    ws.send("3")  # heartbeat pong
+                    ws.send("3")
                     return
 
-                # Look for onFts-client event
                 if "onFts-client" in message:
                     try:
-                        # Extract JSON array from Socket.IO message
-                        # Format: 42["onFts-client","<base64data>"]
                         idx = message.find('[')
                         arr = json.loads(message[idx:])
                         if len(arr) >= 2 and arr[0] == "onFts-client":
@@ -473,6 +483,7 @@ def run_websocket():
 
         except Exception as e:
             print(f"[WS] Exception: {e}")
+            import traceback; traceback.print_exc()
 
         print("[WS] Reconnecting in 15s...")
         time.sleep(15)
