@@ -26,7 +26,7 @@ TRIPS = {}
 BUS_CACHE = {}          # vehicle_id -> {last_seen, data, visible}
 KIOSK_CACHE = {}        # vehicle_id -> {last_seen, data}
 CACHE_TIMEOUT = 180
-KIOSK_TIMEOUT = 60
+KIOSK_TIMEOUT = 300
 
 # Malaysia timezone
 MYT = pytz.timezone('Asia/Kuala_Lumpur')
@@ -485,7 +485,6 @@ def run_websocket():
                 on_close=on_close
             )
 
-            ws_app.run_forever(ping_interval=0, ping_timeout=None)
 
         except Exception as e:
             print(f"[WS] Exception: {e}")
@@ -885,7 +884,6 @@ def debug_ws_status():
         "kiosk_buses": [
             {
                 "vehicle_id": vid,
-                "route_id": entry['data'].get('route_id'),
                 "route_kiosk": entry['data'].get('route_kiosk_name'),
                 "lat": entry['data'].get('latitude'),
                 "lon": entry['data'].get('longitude'),
