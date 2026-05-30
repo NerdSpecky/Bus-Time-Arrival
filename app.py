@@ -396,39 +396,39 @@ def build_subscribe_payload(sid, route, provider):
     return msg
 
 def run_websocket():
-    """Poll Prasarana kiosk WebSocket every 30 seconds"""
+    """Poll Prasarana kiosk via WebSocket every 30 seconds"""
     global ws_connected, ws_last_message
 
-    print("[WS] Waiting 5s before first connect...")
-    time.sleep(5)
+    print("[WS] Thread started, waiting 8s...")
+    time.sleep(8)
 
     while True:
         try:
-            print("\n[WS] Getting fresh sid...")
-            sid = None
-            try:
-                r = requests.get(POLLING_URL, timeout=15)
-                raw = r.text
-                json_start = raw.find('{')
-                if json_start != -1:
-                    handshake = json.loads(raw[json_start:raw.rfind('}')+1])
-                    sid = handshake.get('sid')
-                    print(f"[WS] Got sid: {sid}")
-            except Exception as e:
-                print(f"[WS] Polling failed: {e}")
-
-            if not sid:
-                print("[WS] No sid, retrying in 30s...")
+            print("[WS] Polling cycle start...")
+            
+            # Step 1: Get sid
+            r = requests.get(POLLING_URL, timeout=15)
+            raw = r.text
+            json_start = raw.find('{')
+            if json_start == -1:
+                print("[WS] No handshake JSON")
                 time.sleep(30)
                 continue
-
+                
+            handshake = json.loads(raw[json_start:raw.rfind('}')+1])
+            sid = handshake.get('sid')
+            if not sid:
+                print("[WS] No sid")
+                time.sleep(30)
+                continue
+            
+            print(f"[WS] Got sid: {sid[:8]}...")
             ws_url = f"wss://rapidbus-socketio-avl.prasarana.com.my/socket.io/?EIO=3&transport=websocket&sid={sid}"
-            print(f"[WS] Connecting...")
+
+            result = {"done": False, "buses": []}
 
             def on_open(ws):
-                global ws_connected
                 ws_connected = True
-                print("[WS] Connected!")
                 ws.send("2probe")
 
             def on_message(ws, message):
@@ -437,61 +437,53 @@ def run_websocket():
 
                 if message == "3probe":
                     ws.send("5")
-                    print("[WS] Upgraded to WebSocket")
                     for route, provider in TRACKED_ROUTES.items():
-                        payload = build_subscribe_payload(sid, route, provider)
-                        ws.send(payload)
-                        print(f"[WS] Subscribed to {route} ({provider})")
+                        ws.send(build_subscribe_payload(sid, route, provider))
                     return
-
                 if message == "2":
                     ws.send("3")
                     return
-
-                if message in ("6", "40", "41"):
-                    if message == "41":
-                        print("[WS] Server closing connection (41) — closing cleanly")
-                        ws.close()
+                if message in ("6", "40"):
                     return
-
+                if message == "41":
+                    ws.close()
+                    return
                 if "onFts-client" in message:
                     try:
-                        idx = message.find('[')
-                        arr = json.loads(message[idx:])
-                        if len(arr) >= 2 and arr[0] == "onFts-client":
-                            buses = decode_kiosk_payload(arr[1])
-                            process_kiosk_buses(buses)
+                        arr = json.loads(message[message.find('['):])
+                        if len(arr) >= 2:
+                            result["buses"] = decode_kiosk_payload(arr[1])
+                            result["done"] = True
+                            ws.close()
                     except Exception as e:
                         print(f"[WS] Parse error: {e}")
 
             def on_error(ws, error):
                 global ws_connected
                 ws_connected = False
-                print(f"[WS] Error: {error}")
 
-            def on_close(ws, close_status_code, close_msg):
+            def on_close(ws, c, m):
                 global ws_connected
                 ws_connected = False
-                print(f"[WS] Closed")
 
-            ws_app = websocket.WebSocketApp(
-                ws_url,
-                on_open=on_open,
-                on_message=on_message,
-                on_error=on_error,
-                on_close=on_close
-            )
-            ws_app.run_forever()  
-            print("[WS] run_forever() returned")
+            ws_app = websocket.WebSocketApp(ws_url,
+                on_open=on_open, on_message=on_message,
+                on_error=on_error, on_close=on_close)
+            ws_app.run_forever()
+
+            if result["buses"]:
+                process_kiosk_buses(result["buses"])
+                print(f"[WS] Cycle complete: {len(result['buses'])} buses cached")
+            else:
+                print("[WS] Cycle complete: no buses received")
 
         except Exception as e:
-            print(f"[WS] EXCEPTION TYPE: {type(e).__name__}")
-            print(f"[WS] EXCEPTION MSG: {e}")
-            import traceback
-            traceback.print_exc()
-            
-        print("[WS] Waiting 30s before next poll...")
+            print(f"[WS] Cycle error: {e}")
+            import traceback; traceback.print_exc()
+
+        print("[WS] Sleeping 30s...")
         time.sleep(30)
+        print("[WS] Woke up, next cycle")
 
 def start_websocket_thread():
     """Start WebSocket in background thread"""
