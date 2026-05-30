@@ -235,6 +235,46 @@ def calculate_arrival_time_smart(distance_km, current_speed_mps):
     final_minutes = max(min_minutes, min(round(time_minutes), max_minutes))
     return final_minutes, round(estimated_speed, 1), round(current_speed_kmh, 1)
 
+def calculate_bearing(lat1, lon1, lat2, lon2):
+    """Calculate bearing in degrees from point 1 to point 2"""
+    lat1_r = math.radians(lat1)
+    lat2_r = math.radians(lat2)
+    dlon = math.radians(lon2 - lon1)
+    x = math.sin(dlon) * math.cos(lat2_r)
+    y = math.cos(lat1_r) * math.sin(lat2_r) - math.sin(lat1_r) * math.cos(lat2_r) * math.cos(dlon)
+    bearing = math.degrees(math.atan2(x, y))
+    return (bearing + 360) % 360
+
+def is_bus_approaching(bus_lat, bus_lon, bus_idx, shape, stop_idx):
+    """Check if bus is moving toward the stop using next shape point"""
+    # Use next shape point to determine bus direction of travel
+    if bus_idx + 1 < len(shape):
+        next_lat, next_lon, _ = shape[bus_idx + 1]
+    elif bus_idx > 0:
+        next_lat, next_lon, _ = shape[bus_idx]
+        prev_lat, prev_lon, _ = shape[bus_idx - 1]
+        # Extrapolate direction
+        next_lat = bus_lat + (bus_lat - prev_lat)
+        next_lon = bus_lon + (bus_lon - prev_lon)
+    else:
+        return True  # Can't determine, assume approaching
+
+    stop_lat, stop_lon, _ = shape[stop_idx]
+
+    # Bearing from bus to next shape point (direction of travel)
+    travel_bearing = calculate_bearing(bus_lat, bus_lon, next_lat, next_lon)
+
+    # Bearing from bus to stop
+    stop_bearing = calculate_bearing(bus_lat, bus_lon, stop_lat, stop_lon)
+
+    # Angle difference between travel direction and stop direction
+    diff = abs(travel_bearing - stop_bearing)
+    if diff > 180:
+        diff = 360 - diff
+
+    # If bus is moving within 90 degrees toward the stop, it's approaching
+    return diff < 90
+
 # ============================================
 # GTFS REALTIME (existing buses, non-T450)
 # ============================================
@@ -542,7 +582,7 @@ def calculate_approaching_buses(stop_id):
         bus_idx, bus_dist = find_closest_point_on_shape(bus['latitude'], bus['longitude'], shape)
         stop_idx, stop_dist = find_closest_point_on_shape(stop_info['lat'], stop_info['lon'], shape)
 
-        if bus_idx < stop_idx:
+        if bus_idx < stop_idx and is_bus_approaching(bus['latitude'], bus['longitude'], bus_idx, shape, stop_idx):
             road_dist = calculate_shape_distance(shape, bus_idx, stop_idx)
             total_dist = road_dist + bus_dist + stop_dist
 
