@@ -396,11 +396,8 @@ def build_subscribe_payload(sid, route, provider):
     return msg
 
 def run_websocket():
-    """Poll Prasarana kiosk via WebSocket every 30 seconds"""
     global ws_connected, ws_last_message
-
-    print("[WS] Thread started, waiting 8s...")
-    time.sleep(8)
+    print("[WS] Thread running...")
 
     while True:
         try:
@@ -577,6 +574,10 @@ def calculate_approaching_buses(stop_id):
 
 @app.route('/')
 def hello():
+    global ws_thread
+    if ws_thread is None or not ws_thread.is_alive():
+        print("[WS] Starting thread from request trigger...")
+        start_websocket_thread()
     return (
         f"Bus Arrival Server | "
         f"{len(ROUTES):,} routes | {len(STOPS):,} stops | "
@@ -1035,7 +1036,6 @@ print("\n" + "="*60)
 print("STARTING BUS ARRIVAL SERVER")
 print("="*60)
 download_and_load_gtfs()
-start_websocket_thread()
 print("="*60 + "\n")
 
 if __name__ == '__main__':
