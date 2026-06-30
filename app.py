@@ -904,6 +904,14 @@ def stats():
         "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
 
+@app.route('/stops')
+def get_stops():
+    stops_list = [
+        {"stop_id": stop_id, "stop_name": stop_data.get("stop_name", "")}
+        for stop_id, stop_data in STOPS.items()
+    ]
+    return jsonify(stops_list)
+
 # ============================================
 # DEBUG ENDPOINTS
 # ============================================
