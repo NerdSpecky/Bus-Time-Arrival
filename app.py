@@ -912,6 +912,89 @@ def get_stops():
     ]
     return jsonify(stops_list)
 
+@app.route('/debug')
+@app.route('/debug/')
+def debug_home():
+    """Landing page for debugging and monitoring tools."""
+    sample_stops = [
+        {"stop_id": stop_id, "stop_name": stop_data.get("name", stop_id)}
+        for stop_id, stop_data in list(STOPS.items())[:12]
+    ]
+    debug_links = [
+        ("WebSocket Status", "/debug/ws-status"),
+        ("Kiosk Test", "/debug/kiosk-test"),
+        ("Active Routes", "/debug/active-routes"),
+        ("All Buses", "/debug/all-buses"),
+        ("T450 Debug", "/debug/t450"),
+        ("Raw Feed", "/debug/raw-feed"),
+        ("Stats", "/stats"),
+        ("Reload GTFS", "/reload"),
+    ]
+    return render_template_string('''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bus Arrival Debug</title>
+  <style>
+    :root { --bg:#0b1020; --card:#121a2d; --text:#f4f7ff; --muted:#8da0c3; --accent:#4fd1c5; --accent2:#7c93ff; --border:#23314d; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Arial, sans-serif; background:var(--bg); color:var(--text); padding:24px; }
+    .wrap { max-width:960px; margin:0 auto; }
+    h1 { margin:0 0 8px; font-size:28px; }
+    p { color:var(--muted); line-height:1.5; }
+    .grid { display:grid; grid-template-columns: 1.2fr 0.8fr; gap:20px; margin-top:24px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px; }
+    .card h2 { margin-top:0; font-size:18px; }
+    .links { display:grid; gap:10px; }
+    .link-btn { display:block; text-decoration:none; padding:12px 14px; border-radius:10px; background:linear-gradient(135deg, var(--accent2), var(--accent)); color:white; font-weight:600; }
+    .link-btn.secondary { background:transparent; border:1px solid var(--border); color:var(--text); }
+    .stop-list { display:grid; gap:8px; margin-top:10px; }
+    .stop-item { padding:10px 12px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid var(--border); }
+    .stop-item a { color:var(--accent); text-decoration:none; }
+    .badge { color:var(--accent); font-size:12px; text-transform:uppercase; letter-spacing:0.08em; }
+    .footer { margin-top:18px; color:var(--muted); font-size:13px; }
+    @media (max-width: 700px) { .grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Bus Arrival Debug Center</h1>
+    <p>Use these tools to inspect WebSocket activity, GTFS data, live bus feeds, and route matching.</p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Debug Tools</h2>
+        <div class="links">
+          {% for label, url in debug_links %}
+            <a class="link-btn {{ 'secondary' if label in ['Stats','Reload GTFS'] else '' }}" href="{{ url }}">{{ label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Sample Stop Checks</h2>
+        <div class="badge">Quick access</div>
+        <div class="stop-list">
+          {% for stop in sample_stops %}
+            <div class="stop-item">
+              <strong>{{ stop.stop_name }}</strong><br>
+              <a href="/debug/stop/{{ stop.stop_id }}">Inspect stop {{ stop.stop_id }}</a>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      Loaded routes: {{ routes }} | stops: {{ stops }} | trips: {{ trips }}
+    </div>
+  </div>
+</body>
+</html>
+    ''', debug_links=debug_links, sample_stops=sample_stops, routes=len(ROUTES), stops=len(STOPS), trips=len(TRIPS))
+
 # ============================================
 # DEBUG ENDPOINTS
 # ============================================
