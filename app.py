@@ -925,7 +925,7 @@ def debug_home():
         ("Kiosk Test", "/debug/kiosk-test"),
         ("Active Routes", "/debug/active-routes"),
         ("All Buses", "/debug/all-buses"),
-        ("T450 Debug", "/debug/t450"),
+
         ("Raw Feed", "/debug/raw-feed"),
         ("Stats", "/stats"),
         ("Reload GTFS", "/reload"),
