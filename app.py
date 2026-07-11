@@ -23,6 +23,7 @@ SHAPES = {}
 STOPS = {}
 ROUTES = {}
 TRIPS = {}
+STOP_TIMES = {}
 BUS_CACHE = {}          # vehicle_id -> {last_seen, data, visible}
 KIOSK_CACHE = {}        # vehicle_id -> {last_seen, data}
 CACHE_TIMEOUT = 180
@@ -76,6 +77,17 @@ def match_trip_id(realtime_trip_id, static_trip_id):
             return True
     return False
 
+def parse_gtfs_time(value):
+    if not value:
+        return 0
+    parts = value.split(':')
+    if len(parts) < 2:
+        return 0
+    hours = int(parts[0])
+    minutes = int(parts[1])
+    seconds = int(parts[2]) if len(parts) > 2 else 0
+    return hours * 3600 + minutes * 60 + seconds
+
 def find_matching_trip(realtime_trip_id):
     if realtime_trip_id in TRIPS:
         return realtime_trip_id
@@ -95,7 +107,7 @@ def download_and_load_gtfs():
         print(f"Downloaded {len(response.content):,} bytes")
 
         zip_file = zipfile.ZipFile(io.BytesIO(response.content))
-        STOPS.clear(); SHAPES.clear(); ROUTES.clear(); TRIPS.clear()
+        STOPS.clear(); SHAPES.clear(); ROUTES.clear(); TRIPS.clear(); STOP_TIMES.clear()
 
         with zip_file.open('stops.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
@@ -149,8 +161,26 @@ def download_and_load_gtfs():
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
             for row in reader:
                 if row['trip_id'] in TRIPS:
-                    TRIPS[row['trip_id']]['stops_served'].add(row['stop_id'])
+                    trip_data = TRIPS[row['trip_id']]
+                    trip_data['stops_served'].add(row['stop_id'])
+                    route_id = trip_data.get('route_id')
+                    route_info = ROUTES.get(route_id, {})
+                    stop_time_entry = {
+                        'trip_id': row['trip_id'],
+                        'arrival_time': row['arrival_time'],
+                        'departure_time': row['departure_time'],
+                        'stop_id': row['stop_id'],
+                        'stop_sequence': int(row['stop_sequence']),
+                        'stop_headsign': row.get('stop_headsign', ''),
+                        'route_id': route_id,
+                        'route_short_name': route_info.get('short_name', route_id),
+                        'route_long_name': route_info.get('long_name', '')
+                    }
+                    STOP_TIMES.setdefault(row['stop_id'], []).append(stop_time_entry)
                 count += 1
+
+        for stop_id in STOP_TIMES:
+            STOP_TIMES[stop_id].sort(key=lambda item: (parse_gtfs_time(item['arrival_time']), item['stop_sequence'], item['trip_id']))
         print(f"✓ Loaded {count:,} stop times")
         print("=" * 60)
         print("✓ GTFS DATA LOADED")
@@ -192,6 +222,48 @@ def calculate_shape_distance(shape_points, start, end):
         lat2, lon2, _ = shape_points[i+1]
         total += haversine_distance(lat1, lon1, lat2, lon2)
     return total
+
+def get_static_schedule_for_stop(stop_id, limit=10):
+    entries = STOP_TIMES.get(stop_id, [])
+    if not entries:
+        return []
+
+    now = datetime.now(MYT)
+    current_seconds = now.hour * 3600 + now.minute * 60 + now.second
+    upcoming = []
+
+    for entry in entries:
+        arrival_seconds = parse_gtfs_time(entry['arrival_time'])
+        if arrival_seconds >= current_seconds:
+            upcoming.append(entry)
+        else:
+            upcoming.append(entry)
+
+    upcoming.sort(key=lambda item: (parse_gtfs_time(item['arrival_time']), item['stop_sequence'], item['trip_id']))
+    if not upcoming:
+        return []
+
+    results = []
+    for entry in upcoming[:limit]:
+        arrival_seconds = parse_gtfs_time(entry['arrival_time'])
+        if arrival_seconds < current_seconds:
+            arrival_seconds += 86400
+        minutes_until = max(1, int(round((arrival_seconds - current_seconds) / 60.0)))
+        results.append({
+            'trip_id': entry['trip_id'],
+            'route_id': entry['route_id'],
+            'route': entry['route_short_name'] or entry['route_id'],
+            'arrival_time': entry['arrival_time'],
+            'departure_time': entry['departure_time'],
+            'stop_id': entry['stop_id'],
+            'stop_sequence': entry['stop_sequence'],
+            'stop_headsign': entry['stop_headsign'],
+            'arrival_minutes': minutes_until,
+            'distance_km': None
+        })
+
+    return results
+
 
 def calculate_arrival_time_smart(distance_km, current_speed_mps):
     current_speed_kmh = current_speed_mps * 3.6 if current_speed_mps else 0
@@ -648,9 +720,9 @@ def get_schedule(stop_id):
         return jsonify({"error": "Stop not found"}), 404
 
     stop_info = STOPS[stop_id]
-    approaching = calculate_approaching_buses(stop_id)
+    schedule = get_static_schedule_for_stop(stop_id, limit=5)
 
-    if not approaching:
+    if not schedule:
         return jsonify({
             "stop_id": stop_id,
             "stop_name": stop_info['name'],
@@ -661,13 +733,18 @@ def get_schedule(stop_id):
             "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
         })
 
-    first_bus = approaching[0]
+    first_bus = schedule[0]
     return jsonify({
         "stop_id": stop_id,
         "stop_name": stop_info['name'],
         "route": first_bus.get('route'),
+        "route_id": first_bus.get('route_id'),
         "arrival_minutes": first_bus.get('arrival_minutes'),
+        "arrival_time": first_bus.get('arrival_time'),
+        "departure_time": first_bus.get('departure_time'),
         "distance_km": first_bus.get('distance_km'),
+        "stop_sequence": first_bus.get('stop_sequence'),
+        "stop_headsign": first_bus.get('stop_headsign'),
         "available": True,
         "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
