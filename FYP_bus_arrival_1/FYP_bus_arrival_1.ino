@@ -9,21 +9,39 @@
 #include <Fonts/FreeMonoBold12pt7b.h>
 #include <Fonts/FreeMonoBold18pt7b.h>
 #include <Fonts/FreeMonoBold24pt7b.h>
-#include <qrcode.h>
+#include "qrcode_ric.h"
 
 // ===== WiFi Credentials =====
 const char* ssid = "Maruky";
-const char* password = "muffin06";
+const char* password = "muffinbrrrr06";
 
 // ===== Flask Server =====
-const char* serverURL = "https://bus-time-arrival.onrender.com/bus/1001609";
-const char* qrURL     = "https://bus-time-arrival.onrender.com/display/1001609";
+const char* serverURL = "https://bus-time-arrival.onrender.com/bus/1001512";
+const char* scheduleURL = "https://bus-time-arrival.onrender.com/schedule/1001512";
+const char* qrURL     = "https://bus-time-arrival.onrender.com/display/1001512";
 
-// ===== E-ink Display Pins =====
-#define EPD_CS     10
-#define EPD_DC      9
-#define EPD_RST    46
-#define EPD_BUSY    3
+// ===== Pin Definitions =====
+#define EPD_CS      10
+#define EPD_DC       9
+#define EPD_RST     46
+#define EPD_BUSY     3
+#define LED_PIN      2
+#define TOUCH_PIN    4
+#define BATT_PIN    20
+
+// ===== Battery Monitoring =====
+#define BATT_LOW_V    3.5f
+#define BATT_MIN_VALID_V  2.5f
+#define BATT_DIVIDER  2.0f
+#define BATT_CAL_FACTOR  0.987f
+#define BATT_LOW_CONFIRM_COUNT  3
+#define BATT_CHECK_INTERVAL     30000
+
+// ===== TTP223 Touch Module =====
+#define TOUCH_ACTIVE_STATE  HIGH
+#define TOUCH_LOG_INTERVAL  1000
+#define TOUCH_DEBOUNCE      250
+#define LED_DURATION        30000   // 30 seconds
 
 // ===== Display Initialization =====
 GxEPD2_BW<GxEPD2_420_GDEY042T81, GxEPD2_420_GDEY042T81::HEIGHT> display(
@@ -41,19 +59,117 @@ Bus buses[3];
 int busCount = 0;
 int lastBusCount = 0;
 String stopName = "";
+String scheduleRoute = "";
+int scheduleArrivalMinutes = -1;
+float scheduleDistanceKm = 0.0f;
+bool scheduleAvailable = false;
 
 // ===== Stored values at last API update =====
 float lastArrivalMinutes[3] = {0, 0, 0};
 float lastDistanceKm[3]     = {0, 0, 0};
 
+// ===== Battery voltage (for on-screen debug display) =====
+float lastBatteryVoltage = 0.0f;
+
+// ===== LED state =====
+unsigned long ledOnTime = 0;
+bool ledActive = false;
+unsigned long lastTouchLog = 0;
+unsigned long lastTouchTrigger = 0;
+
 // ===== Timing =====
 unsigned long lastAPIUpdate     = 0;
 unsigned long lastDisplayUpdate = 0;
 unsigned long lastFullRefresh   = 0;
+unsigned long lastBatteryCheck  = 0;
+bool qrScreenActive = false;
 
 const unsigned long API_INTERVAL          = 60000;
 const unsigned long DISPLAY_INTERVAL      = 10000;
 const unsigned long FULL_REFRESH_INTERVAL = 600000;
+
+// ===== Battery voltage reading (calibrated, using analogReadMilliVolts) =====
+float readBatteryVoltage() {
+  long mvTotal = 0;
+  for (int i = 0; i < 10; i++) {
+    mvTotal += analogReadMilliVolts(BATT_PIN);
+    delay(5);
+  }
+  float pinMilliVolts = mvTotal / 10.0f;
+  float pinVoltage = pinMilliVolts / 1000.0f;
+  float voltage = pinVoltage * BATT_DIVIDER * BATT_CAL_FACTOR;
+
+  lastBatteryVoltage = voltage;   // store for on-screen display
+
+  Serial.print("Battery pin mV: ");
+  Serial.print(pinMilliVolts, 1);
+  Serial.print(" pin: ");
+  Serial.print(pinVoltage, 3);
+  Serial.print("V battery: ");
+  Serial.print(voltage, 2);
+  Serial.println("V");
+
+  return voltage;
+}
+
+bool isLowBatteryReading(float voltage) {
+  return voltage > BATT_MIN_VALID_V && voltage < BATT_LOW_V;
+}
+
+bool batteryLowConfirmed() {
+  int lowCount = 0;
+
+  for (int i = 0; i < BATT_LOW_CONFIRM_COUNT; i++) {
+    float voltage = readBatteryVoltage();
+    if (isLowBatteryReading(voltage)) {
+      lowCount++;
+    }
+    delay(100);
+  }
+
+  if (lowCount > 0) {
+    Serial.print("Low battery samples: ");
+    Serial.print(lowCount);
+    Serial.print("/");
+    Serial.println(BATT_LOW_CONFIRM_COUNT);
+  }
+
+  return lowCount >= BATT_LOW_CONFIRM_COUNT;
+}
+
+// ===== LED + Touch handler =====
+void handleLED() {
+  unsigned long now = millis();
+  int touchState = digitalRead(TOUCH_PIN);
+
+  if (now - lastTouchLog >= TOUCH_LOG_INTERVAL) {
+    Serial.print("Touch SIG: ");
+    Serial.println(touchState == TOUCH_ACTIVE_STATE ? "HIGH" : "LOW");
+    lastTouchLog = now;
+  }
+
+  if (touchState == TOUCH_ACTIVE_STATE && now - lastTouchTrigger >= TOUCH_DEBOUNCE) {
+    Serial.println("Touch detected - LED ON");
+    digitalWrite(LED_PIN, HIGH);
+    ledActive = true;
+    ledOnTime = now;
+    lastTouchTrigger = now;
+  }
+
+  if (ledActive && (now - ledOnTime >= LED_DURATION)) {
+    Serial.println("LED auto OFF");
+    digitalWrite(LED_PIN, LOW);
+    ledActive = false;
+  }
+}
+
+void waitWithLED(unsigned long durationMs) {
+  unsigned long start = millis();
+  while (millis() - start < durationMs) {
+    handleLED();
+    delay(50);
+  }
+}
 
 // ===== Setup =====
 void setup() {
@@ -64,35 +180,72 @@ void setup() {
   Serial.println("Bus Arrival Display System");
   Serial.println("=================================\n");
 
+  // Pin setup
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(TOUCH_PIN, INPUT_PULLDOWN);
+  pinMode(BATT_PIN, INPUT);
+  analogReadResolution(12);
+  analogSetPinAttenuation(BATT_PIN, ADC_11db);
+  digitalWrite(LED_PIN, LOW);
+
   Serial.println("Initializing display...");
   display.init(115200);
   display.setRotation(0);
   Serial.println("✓ Display ready!\n");
 
+  // Battery check
+  if (batteryLowConfirmed()) {
+    Serial.println("⚠ Low battery — showing QR screen");
+    showQRScreen(true);
+    waitWithLED(300000);
+    ESP.restart();
+    return;
+  }
+
   showLoadingScreen();
   connectWiFi();
 
   if (WiFi.status() != WL_CONNECTED) {
-    showQRScreen();
+    showQRScreen(false);
     return;
   }
 
   fetchBusData();
+  fetchScheduleData();
   displayBusArrivals(true);
   lastAPIUpdate     = millis();
   lastDisplayUpdate = millis();
   lastFullRefresh   = millis();
+  lastBatteryCheck  = millis();
 }
 
 // ===== Loop =====
 void loop() {
   unsigned long now = millis();
 
+  // Handle LED touch every cycle
+  handleLED();
+
+  // Battery check
+  if (now - lastBatteryCheck >= BATT_CHECK_INTERVAL) {
+    lastBatteryCheck = now;
+
+    if (batteryLowConfirmed()) {
+      Serial.println("⚠ Low battery!");
+      digitalWrite(LED_PIN, LOW);  // turn off LED to save power
+      showQRScreen(true);
+      waitWithLED(300000);
+      ESP.restart();
+      return;
+    }
+  }
+
   // Check WiFi
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("⚠ WiFi lost — showing QR screen");
-    showQRScreen();
-    delay(60000);
+    digitalWrite(LED_PIN, LOW);
+    showQRScreen(false);
+    waitWithLED(60000);
     connectWiFi();
     return;
   }
@@ -101,6 +254,7 @@ void loop() {
   if (now - lastAPIUpdate >= API_INTERVAL) {
     Serial.println("\nFetching new API data...");
     fetchBusData();
+    fetchScheduleData();
 
     for (int i = 0; i < busCount; i++) {
       lastArrivalMinutes[i] = buses[i].arrivalMinutes;
@@ -127,8 +281,9 @@ void loop() {
 
     bool busCountChanged    = (busCount != lastBusCount);
     bool timeForFullRefresh = (now - lastFullRefresh >= FULL_REFRESH_INTERVAL);
+    bool returningFromQR    = qrScreenActive;
 
-    if (busCountChanged || timeForFullRefresh) {
+    if (busCountChanged || timeForFullRefresh || returningFromQR) {
       displayBusArrivals(true);
       lastFullRefresh = now;
     } else {
@@ -165,7 +320,7 @@ void connectWiFi() {
 // ===== Fetch Bus Data =====
 void fetchBusData() {
   if (WiFi.status() != WL_CONNECTED) {
-    showQRScreen();
+    showQRScreen(false);
     return;
   }
 
@@ -185,7 +340,57 @@ void fetchBusData() {
   } else {
     Serial.print("✗ HTTP Error: ");
     Serial.println(httpCode);
-    showQRScreen();
+    showQRScreen(false);
+  }
+
+  http.end();
+}
+
+// ===== Fetch Schedule Data =====
+void fetchScheduleData() {
+  if (WiFi.status() != WL_CONNECTED) {
+    scheduleAvailable = false;
+    scheduleRoute = "";
+    scheduleArrivalMinutes = -1;
+    scheduleDistanceKm = 0.0f;
+    return;
+  }
+
+  HTTPClient http;
+  http.begin(scheduleURL);
+  http.setTimeout(10000);
+
+  int httpCode = http.GET();
+  Serial.print("Schedule HTTP Code: ");
+  Serial.println(httpCode);
+
+  if (httpCode == 200) {
+    String payload = http.getString();
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (!error) {
+      scheduleAvailable = doc["available"].as<bool>();
+      if (scheduleAvailable) {
+        scheduleRoute = doc["route"].as<String>();
+        scheduleArrivalMinutes = (int)(doc["arrival_minutes"].as<float>() + 0.5f);
+        scheduleDistanceKm = doc["distance_km"].as<float>();
+      } else {
+        scheduleRoute = "";
+        scheduleArrivalMinutes = -1;
+        scheduleDistanceKm = 0.0f;
+      }
+    } else {
+      scheduleAvailable = false;
+      scheduleRoute = "";
+      scheduleArrivalMinutes = -1;
+      scheduleDistanceKm = 0.0f;
+    }
+  } else {
+    scheduleAvailable = false;
+    scheduleRoute = "";
+    scheduleArrivalMinutes = -1;
+    scheduleDistanceKm = 0.0f;
   }
 
   http.end();
@@ -193,7 +398,7 @@ void fetchBusData() {
 
 // ===== Parse JSON =====
 bool parseJSON(String json) {
-  DynamicJsonDocument doc(4096);
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, json);
   if (error) return false;
 
@@ -213,9 +418,41 @@ bool parseJSON(String json) {
   return true;
 }
 
+void drawHeaderIcons(float voltage, bool connected, int x, int y) {
+  int batteryX = x;
+  int wifiX = x + 38;
+
+  display.drawRect(batteryX, y, 22, 12, GxEPD_BLACK);
+  display.drawRect(batteryX + 22, y + 4, 3, 4, GxEPD_BLACK);
+
+  int fillWidth = 0;
+  if (voltage >= 3.8f) {
+    fillWidth = 18;
+  } else if (voltage >= 3.5f) {
+    fillWidth = 9;
+  }
+
+  if (fillWidth > 0) {
+    display.fillRect(batteryX + 2, y + 2, fillWidth, 8, GxEPD_BLACK);
+  }
+
+  int cx = wifiX + 8;
+  int cy = y + 6;
+  display.drawCircle(cx, cy, 2, GxEPD_BLACK);
+  display.drawCircle(cx, cy, 6, GxEPD_BLACK);
+  display.drawCircle(cx, cy, 10, GxEPD_BLACK);
+
+  if (!connected) {
+    display.drawLine(cx - 10, cy + 10, cx + 8, cy - 8, GxEPD_BLACK);
+  }
+}
+
 // ===== QR Code Screen =====
-void showQRScreen() {
-  Serial.println("Showing QR screen...");
+void showQRScreen(bool lowBattery) {
+  Serial.println(lowBattery ? "Showing QR (low battery)..." : "Showing QR (no network)...");
+  qrScreenActive = true;
+
+  readBatteryVoltage();
 
   QRCode qrcode;
   uint8_t qrcodeData[qrcode_getBufferSize(4)];
@@ -227,23 +464,48 @@ void showQRScreen() {
     display.fillScreen(GxEPD_WHITE);
     display.setTextColor(GxEPD_BLACK);
 
-    // Header
     display.setFont(&FreeMonoBold12pt7b);
     display.setCursor(20, 30);
     display.print("BUS ARRIVALS");
+
+    drawHeaderIcons(lastBatteryVoltage, WiFi.status() == WL_CONNECTED, 330, 18);
     display.drawLine(20, 40, 380, 40, GxEPD_BLACK);
 
-    // Message
     display.setFont(&FreeMonoBold9pt7b);
     display.setCursor(20, 60);
-    display.print("No network - scan for live arrivals");
+    String shortName = stopName;
+    if (shortName.length() > 35) shortName = shortName.substring(0, 35) + "...";
+    display.print(shortName);
+    display.drawLine(20, 75, 380, 75, GxEPD_BLACK);
 
-    // QR code centered
+    display.setFont(&FreeMonoBold12pt7b);
+    display.setCursor(20, 105);
+    display.print("SCHEDULE BUS");
+
+    String routeText = "Route --";
+    String timeText = "No schedule";
+    if (scheduleAvailable) {
+      routeText = "Route " + scheduleRoute;
+      if (scheduleArrivalMinutes <= 1) {
+        timeText = "Arriving now";
+      } else {
+        timeText = String(scheduleArrivalMinutes) + " min";
+      }
+    }
+
+    display.setFont(&FreeMonoBold24pt7b);
+    display.setCursor(20, 140);
+    display.print(routeText);
+
+    display.setFont(&FreeMonoBold18pt7b);
+    display.setCursor(20, 172);
+    display.print(timeText);
+
     int qrSize   = qrcode.size;
-    int scale    = 5;
+    int scale    = 4;
     int qrPixels = qrSize * scale;
-    int qrX      = (400 - qrPixels) / 2;
-    int qrY      = 75;
+    int qrX      = 230;
+    int qrY      = 95;
 
     for (int y = 0; y < qrSize; y++) {
       for (int x = 0; x < qrSize; x++) {
@@ -257,11 +519,6 @@ void showQRScreen() {
         }
       }
     }
-
-    // URL below QR
-    display.setFont(&FreeMonoBold9pt7b);
-    display.setCursor(20, qrY + qrPixels + 20);
-    display.print("bus-time-arrival.onrender.com");
 
   } while (display.nextPage());
 
@@ -283,6 +540,13 @@ void showLoadingScreen() {
 
 // ===== Display Bus Arrivals =====
 void displayBusArrivals(bool fullRefresh) {
+  if (qrScreenActive) {
+    fullRefresh = true;
+  }
+
+  // Fresh reading just before drawing, so the on-screen number is current
+  readBatteryVoltage();
+
   Serial.println(fullRefresh ? "Updating display (full)..." : "Updating display (partial)...");
 
   if (fullRefresh) {
@@ -300,6 +564,9 @@ void displayBusArrivals(bool fullRefresh) {
     display.setFont(&FreeMonoBold18pt7b);
     display.setCursor(20, 35);
     display.print("BUS ARRIVALS");
+
+    drawHeaderIcons(lastBatteryVoltage, WiFi.status() == WL_CONNECTED, 330, 18);
+
     display.drawLine(20, 45, 380, 45, GxEPD_BLACK);
     display.drawLine(20, 47, 380, 47, GxEPD_BLACK);
 
@@ -354,6 +621,8 @@ void displayBusArrivals(bool fullRefresh) {
     display.print("");
 
   } while (display.nextPage());
+
+  qrScreenActive = false;
 
   Serial.println("✓ Display updated!\n");
 }

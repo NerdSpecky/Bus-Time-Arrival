@@ -642,6 +642,36 @@ def get_bus_arrivals(stop_id):
         "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
 
+@app.route('/schedule/<stop_id>')
+def get_schedule(stop_id):
+    if stop_id not in STOPS:
+        return jsonify({"error": "Stop not found"}), 404
+
+    stop_info = STOPS[stop_id]
+    approaching = calculate_approaching_buses(stop_id)
+
+    if not approaching:
+        return jsonify({
+            "stop_id": stop_id,
+            "stop_name": stop_info['name'],
+            "route": None,
+            "arrival_minutes": None,
+            "distance_km": None,
+            "available": False,
+            "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
+        })
+
+    first_bus = approaching[0]
+    return jsonify({
+        "stop_id": stop_id,
+        "stop_name": stop_info['name'],
+        "route": first_bus.get('route'),
+        "arrival_minutes": first_bus.get('arrival_minutes'),
+        "distance_km": first_bus.get('distance_km'),
+        "available": True,
+        "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
+    })
+
 @app.route('/display/<stop_id>')
 def display_stop(stop_id):
     """QR code web page — mobile-friendly bus arrival display"""
