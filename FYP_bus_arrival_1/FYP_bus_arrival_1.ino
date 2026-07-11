@@ -59,9 +59,12 @@ Bus buses[3];
 int busCount = 0;
 int lastBusCount = 0;
 String stopName = "";
-String scheduleRoute = "";
-int scheduleArrivalMinutes = -1;
-float scheduleDistanceKm = 0.0f;
+struct ScheduleEntry {
+  String route;
+  int arrivalMinutes;
+};
+ScheduleEntry scheduleEntries[6];
+int scheduleCount = 0;
 bool scheduleAvailable = false;
 
 // ===== Stored values at last API update =====
@@ -350,9 +353,11 @@ void fetchBusData() {
 void fetchScheduleData() {
   if (WiFi.status() != WL_CONNECTED) {
     scheduleAvailable = false;
-    scheduleRoute = "";
-    scheduleArrivalMinutes = -1;
-    scheduleDistanceKm = 0.0f;
+    scheduleCount = 0;
+    for (int i = 0; i < 3; i++) {
+      scheduleEntries[i].route = "";
+      scheduleEntries[i].arrivalMinutes = -1;
+    }
     return;
   }
 
@@ -371,26 +376,31 @@ void fetchScheduleData() {
 
     if (!error) {
       scheduleAvailable = doc["available"].as<bool>();
+      scheduleCount = 0;
+      for (int i = 0; i < 6; i++) {
+        scheduleEntries[i].route = "";
+        scheduleEntries[i].arrivalMinutes = -1;
+      }
+
       if (scheduleAvailable) {
-        scheduleRoute = doc["route"].as<String>();
-        scheduleArrivalMinutes = (int)(doc["arrival_minutes"].as<float>() + 0.5f);
-        scheduleDistanceKm = doc["distance_km"].as<float>();
-      } else {
-        scheduleRoute = "";
-        scheduleArrivalMinutes = -1;
-        scheduleDistanceKm = 0.0f;
+        JsonArray schedules = doc["schedules"].as<JsonArray>();
+        for (JsonVariant entry : schedules) {
+          if (scheduleCount >= 6) break;
+          scheduleEntries[scheduleCount].route = entry["route"].as<String>();
+          scheduleEntries[scheduleCount].arrivalMinutes = (int)(entry["arrival_minutes"].as<float>() + 0.5f);
+          scheduleCount++;
+        }
+        if (scheduleCount == 0) {
+          scheduleAvailable = false;
+        }
       }
     } else {
       scheduleAvailable = false;
-      scheduleRoute = "";
-      scheduleArrivalMinutes = -1;
-      scheduleDistanceKm = 0.0f;
+      scheduleCount = 0;
     }
   } else {
     scheduleAvailable = false;
-    scheduleRoute = "";
-    scheduleArrivalMinutes = -1;
-    scheduleDistanceKm = 0.0f;
+    scheduleCount = 0;
   }
 
   http.end();
@@ -482,24 +492,29 @@ void showQRScreen(bool lowBattery) {
     display.setCursor(20, 105);
     display.print("SCHEDULE BUS");
 
-    String routeText = "Route --";
-    String timeText = "No schedule";
     if (scheduleAvailable) {
-      routeText = "Route " + scheduleRoute;
-      if (scheduleArrivalMinutes <= 1) {
-        timeText = "Arriving now";
-      } else {
-        timeText = String(scheduleArrivalMinutes) + " min";
+      int yPos = 125;
+      for (int i = 0; i < scheduleCount && i < 6; i++) {
+        display.setFont(&FreeMonoBold12pt7b);
+        display.setCursor(20, yPos);
+        display.print("Route ");
+        display.print(scheduleEntries[i].route);
+
+        display.setFont(&FreeMonoBold12pt7b);
+        display.setCursor(220, yPos);
+        if (scheduleEntries[i].arrivalMinutes <= 1) {
+          display.print("ARRIVING");
+        } else {
+          display.print(scheduleEntries[i].arrivalMinutes);
+          display.print(" min");
+        }
+        yPos += 20;
       }
+    } else {
+      display.setFont(&FreeMonoBold18pt7b);
+      display.setCursor(20, 140);
+      display.print("No schedule");
     }
-
-    display.setFont(&FreeMonoBold24pt7b);
-    display.setCursor(20, 140);
-    display.print(routeText);
-
-    display.setFont(&FreeMonoBold18pt7b);
-    display.setCursor(20, 172);
-    display.print(timeText);
 
     int qrSize   = qrcode.size;
     int scale    = 4;

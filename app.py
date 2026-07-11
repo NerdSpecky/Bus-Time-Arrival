@@ -223,7 +223,7 @@ def calculate_shape_distance(shape_points, start, end):
         total += haversine_distance(lat1, lon1, lat2, lon2)
     return total
 
-def get_static_schedule_for_stop(stop_id, limit=10):
+def get_static_schedule_for_stop(stop_id, limit=100):
     entries = STOP_TIMES.get(stop_id, [])
     if not entries:
         return []
@@ -236,7 +236,9 @@ def get_static_schedule_for_stop(stop_id, limit=10):
         arrival_seconds = parse_gtfs_time(entry['arrival_time'])
         if arrival_seconds >= current_seconds:
             upcoming.append(entry)
-        else:
+
+    if not upcoming:
+        for entry in entries:
             upcoming.append(entry)
 
     upcoming.sort(key=lambda item: (parse_gtfs_time(item['arrival_time']), item['stop_sequence'], item['trip_id']))
@@ -720,7 +722,7 @@ def get_schedule(stop_id):
         return jsonify({"error": "Stop not found"}), 404
 
     stop_info = STOPS[stop_id]
-    schedule = get_static_schedule_for_stop(stop_id, limit=5)
+    schedule = get_static_schedule_for_stop(stop_id, limit=100)
 
     if not schedule:
         return jsonify({
@@ -730,6 +732,7 @@ def get_schedule(stop_id):
             "arrival_minutes": None,
             "distance_km": None,
             "available": False,
+            "schedules": [],
             "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
         })
 
@@ -746,6 +749,7 @@ def get_schedule(stop_id):
         "stop_sequence": first_bus.get('stop_sequence'),
         "stop_headsign": first_bus.get('stop_headsign'),
         "available": True,
+        "schedules": schedule,
         "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
     })
 
