@@ -16,9 +16,9 @@ const char* ssid = "Maruky";
 const char* password = "muffinbrrrr06";
 
 // ===== Flask Server =====
-const char* serverURL = "https://bus-time-arrival.onrender.com/bus/1001512";
-const char* scheduleURL = "https://bus-time-arrival.onrender.com/schedule/1001512";
-const char* qrURL     = "https://bus-time-arrival.onrender.com/display/1001512";
+const char* serverURL = "https://bus-time-arrival.onrender.com/bus/1007233";
+const char* scheduleURL = "https://bus-time-arrival.onrender.com/schedule/1007233";
+const char* qrURL     = "https://bus-time-arrival.onrender.com/display/1007233";
 
 // ===== Pin Definitions =====
 #define EPD_CS      10
@@ -488,39 +488,11 @@ void showQRScreen(bool lowBattery) {
     display.print(shortName);
     display.drawLine(20, 75, 380, 75, GxEPD_BLACK);
 
-    display.setFont(&FreeMonoBold12pt7b);
-    display.setCursor(20, 105);
-    display.print("SCHEDULE BUS");
-
-    if (scheduleAvailable) {
-      int yPos = 125;
-      for (int i = 0; i < scheduleCount && i < 6; i++) {
-        display.setFont(&FreeMonoBold12pt7b);
-        display.setCursor(20, yPos);
-        display.print("Route ");
-        display.print(scheduleEntries[i].route);
-
-        display.setFont(&FreeMonoBold12pt7b);
-        display.setCursor(220, yPos);
-        if (scheduleEntries[i].arrivalMinutes <= 1) {
-          display.print("ARRIVING");
-        } else {
-          display.print(scheduleEntries[i].arrivalMinutes);
-          display.print(" min");
-        }
-        yPos += 20;
-      }
-    } else {
-      display.setFont(&FreeMonoBold18pt7b);
-      display.setCursor(20, 140);
-      display.print("No schedule");
-    }
-
     int qrSize   = qrcode.size;
-    int scale    = 4;
+    int scale    = 5; // smaller to avoid overlapping other text
     int qrPixels = qrSize * scale;
-    int qrX      = 230;
-    int qrY      = 95;
+    int qrX      = (400 - qrPixels) / 2;
+    int qrY      = ((300 - qrPixels) / 2)+15;
 
     for (int y = 0; y < qrSize; y++) {
       for (int x = 0; x < qrSize; x++) {
@@ -534,6 +506,14 @@ void showQRScreen(bool lowBattery) {
         }
       }
     }
+
+    display.setFont(&FreeMonoBold9pt7b);
+    String caption = "Scan for live arrivals";
+    int captionLen = caption.length();
+    int approxCharW = 6; // approximate width per character for this font
+    int captionX = ((400 - (captionLen * approxCharW)) / 2);
+    display.setCursor(captionX  - 45 , qrY + qrPixels + 25);
+    display.print(caption);
 
   } while (display.nextPage());
 

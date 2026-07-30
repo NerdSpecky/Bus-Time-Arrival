@@ -13,6 +13,7 @@ import base64
 import json
 import websocket
 import gzip
+import os
 
 app = Flask(__name__)
 
@@ -46,9 +47,12 @@ ws_thread = None
 ws_connected = False
 ws_last_message = None
 
-# API URLs
-GTFS_STATIC_URL = "https://api.data.gov.my/gtfs-static/prasarana?category=rapid-bus-kl"
-GTFS_REALTIME_URL = "https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana?category=rapid-bus-kl"
+# API configuration
+# Possible CATEGORY values: rapid-bus-penang, rapid-bus-kuantan, rapid-bus-mrtfeeder, rapid-bus-kl
+CATEGORY = "rapid-bus-kl"  # change this value for debugging other categories
+SAFE_CAT_DIR = CATEGORY.replace('-', '_')
+GTFS_STATIC_URL = f"https://api.data.gov.my/gtfs-static/prasarana?category={CATEGORY}"
+GTFS_REALTIME_URL = f"https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana?category={CATEGORY}"
 
 # ============================================
 # GTFS STATIC HELPERS
@@ -118,6 +122,15 @@ def download_and_load_gtfs():
                     'lon': float(row['stop_lon'])
                 }
         print(f"✓ Loaded {len(STOPS):,} stops")
+        # Create category-based directories for debugging/inspection
+        try:
+            base_dir = os.path.join(os.getcwd(), SAFE_CAT_DIR, 'bus')
+            os.makedirs(base_dir, exist_ok=True)
+            for stop_id in STOPS.keys():
+                os.makedirs(os.path.join(base_dir, stop_id), exist_ok=True)
+            print(f"✓ Created local directories under {base_dir} for {len(STOPS):,} stops")
+        except Exception as e:
+            print(f"✗ ERROR creating category directories: {e}")
 
         with zip_file.open('routes.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
