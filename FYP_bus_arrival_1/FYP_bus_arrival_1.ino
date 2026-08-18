@@ -9,12 +9,14 @@
 #include <Fonts/FreeMonoBold12pt7b.h>
 #include <Fonts/FreeMonoBold18pt7b.h>
 #include <Fonts/FreeMonoBold24pt7b.h>
+#include <time.h>
+#include <esp_sleep.h>
 #include "qrcode_ric.h"
 
 // ===== WiFi Credentials =====
 const char* ssid = "Maruky";
 const char* password = "muffinbrrrr06";
-
+// Main Bus Stop ID: 1007233: MRT Stadium Kajang, 1001512: KL1079 KL SENTRAL
 // ===== Flask Server =====
 const char* serverURL = "https://bus-time-arrival.onrender.com/bus/1007233";
 const char* scheduleURL = "https://bus-time-arrival.onrender.com/schedule/1007233";
@@ -30,7 +32,7 @@ const char* qrURL     = "https://bus-time-arrival.onrender.com/display/1007233";
 #define BATT_PIN    20
 
 // ===== Battery Monitoring =====
-#define BATT_LOW_V    3.5f
+#define BATT_LOW_V    3.3f
 #define BATT_MIN_VALID_V  2.5f
 #define BATT_DIVIDER  2.0f
 #define BATT_CAL_FACTOR  0.987f
@@ -41,6 +43,7 @@ const char* qrURL     = "https://bus-time-arrival.onrender.com/display/1007233";
 #define TOUCH_ACTIVE_STATE  HIGH
 #define TOUCH_LOG_INTERVAL  1000
 #define TOUCH_DEBOUNCE      250
+#define TOUCH_RESTART_HOLD_MS 5000
 #define LED_DURATION        30000   // 30 seconds
 
 // ===== Display Initialization =====
@@ -90,6 +93,14 @@ bool qrScreenActive = false;
 const unsigned long API_INTERVAL          = 60000;
 const unsigned long DISPLAY_INTERVAL      = 10000;
 const unsigned long FULL_REFRESH_INTERVAL = 600000;
+const unsigned long WIFI_RETRY_INTERVAL   = 60000;
+const unsigned long NIGHT_SLEEP_DURATION_US = 30ULL * 60ULL * 1000000ULL;
+
+bool lowBatteryMode = false;
+bool sleepModeActive = false;
+unsigned long lastWiFiCheck = 0;
+unsigned long touchHoldStart = 0;
+bool touchHeld = false;
 
 // ===== Battery voltage reading (calibrated, using analogReadMilliVolts) =====
 float readBatteryVoltage() {
@@ -198,10 +209,10 @@ void setup() {
 
   // Battery check
   if (batteryLowConfirmed()) {
-    Serial.println("⚠ Low battery — showing QR screen");
+    Serial.println("⚠ Low battery — showing QR until power recovers");
+    lowBatteryMode = true;
     showQRScreen(true);
-    waitWithLED(300000);
-    ESP.restart();
+    lastBatteryCheck = millis();
     return;
   }
 
@@ -226,30 +237,97 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  // Handle LED touch every cycle
   handleLED();
+  handleTouchRestart();
 
-  // Battery check
+  if (isNightTime()) {
+    Serial.println("Night mode active — sleeping until next wake cycle");
+    digitalWrite(LED_PIN, LOW);
+    display.powerOff();
+    display.hibernate();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    sleepModeActive = true;
+    esp_sleep_enable_timer_wakeup(NIGHT_SLEEP_DURATION_US);
+    esp_deep_sleep_start();
+    return;
+  }
+  sleepModeActive = false;
+
+  if (lowBatteryMode) {
+    float voltage = readBatteryVoltage();
+    if (voltage >= BATT_LOW_V) {
+      Serial.println("Battery recovered — resuming normal operation");
+      lowBatteryMode = false;
+      qrScreenActive = false;
+      displayBusArrivals(true);
+      lastBatteryCheck = now;
+      return;
+    }
+
+    if (!qrScreenActive) {
+      showQRScreen(true);
+    }
+    return;
+  }
+
   if (now - lastBatteryCheck >= BATT_CHECK_INTERVAL) {
     lastBatteryCheck = now;
+    float voltage = readBatteryVoltage();
 
-    if (batteryLowConfirmed()) {
-      Serial.println("⚠ Low battery!");
-      digitalWrite(LED_PIN, LOW);  // turn off LED to save power
+    if (isLowBatteryReading(voltage)) {
+      Serial.println("⚠ Low battery! Showing QR until power recovers.");
+      lowBatteryMode = true;
+      qrScreenActive = true;
       showQRScreen(true);
-      waitWithLED(300000);
-      ESP.restart();
       return;
     }
   }
 
-  // Check WiFi
+  if (qrScreenActive) {
+    if (WiFi.status() != WL_CONNECTED) {
+      if (now - lastWiFiCheck >= WIFI_RETRY_INTERVAL) {
+        lastWiFiCheck = now;
+        connectWiFi();
+      }
+      return;
+    }
+
+    if (now - lastWiFiCheck >= WIFI_RETRY_INTERVAL) {
+      lastWiFiCheck = now;
+      fetchBusData();
+      fetchScheduleData();
+
+      if (busCount > 0) {
+        qrScreenActive = false;
+        displayBusArrivals(true);
+        lastAPIUpdate = millis();
+        lastDisplayUpdate = millis();
+      }
+    }
+    return;
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("⚠ WiFi lost — showing QR screen");
-    digitalWrite(LED_PIN, LOW);
-    showQRScreen(false);
-    waitWithLED(60000);
-    connectWiFi();
+    if (now - lastWiFiCheck >= WIFI_RETRY_INTERVAL) {
+      lastWiFiCheck = now;
+      connectWiFi();
+      if (WiFi.status() == WL_CONNECTED) {
+        fetchBusData();
+        fetchScheduleData();
+        qrScreenActive = false;
+        displayBusArrivals(true);
+        lastAPIUpdate = millis();
+        lastDisplayUpdate = millis();
+        return;
+      }
+    }
+
+    if (!qrScreenActive) {
+      Serial.println("⚠ WiFi lost — showing QR screen");
+      digitalWrite(LED_PIN, LOW);
+      showQRScreen(false);
+    }
     return;
   }
 
@@ -299,6 +377,33 @@ void loop() {
 }
 
 // ===== WiFi Connection =====
+bool isNightTime() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return false;
+  }
+  int hour = timeinfo.tm_hour;
+  return (hour >= 0 && hour < 6);
+}
+
+void handleTouchRestart() {
+  int touchState = digitalRead(TOUCH_PIN);
+
+  if (touchState == TOUCH_ACTIVE_STATE) {
+    if (!touchHeld) {
+      touchHeld = true;
+      touchHoldStart = millis();
+    } else if (millis() - touchHoldStart >= TOUCH_RESTART_HOLD_MS) {
+      Serial.println("Touch held for 5 seconds — restarting ESP32");
+      delay(250);
+      ESP.restart();
+    }
+  } else {
+    touchHeld = false;
+    touchHoldStart = 0;
+  }
+}
+
 void connectWiFi() {
   Serial.print("Connecting to WiFi: ");
   Serial.println(ssid);
@@ -315,6 +420,7 @@ void connectWiFi() {
     Serial.println("\n✓ WiFi Connected!");
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   } else {
     Serial.println("\n✗ WiFi Failed!");
   }

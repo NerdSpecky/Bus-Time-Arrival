@@ -1053,6 +1053,7 @@ def debug_home():
         ("Raw Feed", "/debug/raw-feed"),
         ("Stats", "/stats"),
         ("Reload GTFS", "/reload"),
+        ("Test Categories", "/debug/check-categories"),
     ]
     return render_template_string('''
 <!DOCTYPE html>
@@ -1260,6 +1261,51 @@ def debug_t450():
 
 @app.route('/debug/raw-feed')
 def debug_raw_feed():
+    # Placeholder raw-feed debug endpoint
+    return jsonify({'message': 'raw-feed debug placeholder'})
+
+@app.route('/debug/check-categories')
+def debug_check_categories():
+    """Check activity for all known categories and report status."""
+    categories = [
+        "rapid-bus-penang",
+        "rapid-bus-kuantan",
+        "rapid-bus-mrtfeeder",
+        "rapid-bus-kl",
+    ]
+    results = {}
+    for cat in categories:
+        realtime_url = f"https://api.data.gov.my/gtfs-realtime/vehicle-position/prasarana?category={cat}"
+        try:
+            r = requests.get(realtime_url, timeout=10)
+            details = {'status_code': r.status_code, 'size': len(r.content)}
+            # attempt to parse protobuf feed to verify content and count vehicles
+            try:
+                feed = gtfs_realtime_pb2.FeedMessage()
+                feed.ParseFromString(r.content)
+                details['entities'] = len(feed.entity)
+                vehicle_ids = set()
+                for ent in feed.entity:
+                    if ent.HasField('vehicle'):
+                        try:
+                            vid = ent.vehicle.vehicle.id if ent.vehicle.HasField('vehicle') else None
+                        except Exception:
+                            # fallback: try attribute access
+                            vid = getattr(ent.vehicle, 'vehicle', None)
+                            if vid:
+                                vid = getattr(vid, 'id', None)
+                        if vid:
+                            vehicle_ids.add(vid)
+                details['vehicle_count'] = len(vehicle_ids)
+                details['sample_vehicle_ids'] = list(vehicle_ids)[:10]
+                results[cat] = {'active': len(vehicle_ids) > 0, 'details': details}
+            except Exception as e:
+                details['parse_error'] = str(e)
+                results[cat] = {'active': False, 'details': details}
+        except Exception as e:
+            results[cat] = {'active': False, 'details': {'error': str(e)}}
+
+    return jsonify(results)
     try:
         response = requests.get(GTFS_REALTIME_URL, timeout=10, allow_redirects=True)
         feed = gtfs_realtime_pb2.FeedMessage()
