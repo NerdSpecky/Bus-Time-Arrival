@@ -25,6 +25,7 @@ STOPS = {}
 ROUTES = {}
 TRIPS = {}
 STOP_TIMES = {}
+SHAPE_CUMULATIVE_DIST = {}  # shape_id -> [0, d1, d1+d2, ...] cumulative distances per vertex
 BUS_CACHE = {}          # vehicle_id -> {last_seen, data, visible}
 KIOSK_CACHE = {}        # vehicle_id -> {last_seen, data}
 CACHE_TIMEOUT = 180
@@ -111,7 +112,7 @@ def download_and_load_gtfs():
         print(f"Downloaded {len(response.content):,} bytes")
 
         zip_file = zipfile.ZipFile(io.BytesIO(response.content))
-        STOPS.clear(); SHAPES.clear(); ROUTES.clear(); TRIPS.clear(); STOP_TIMES.clear()
+        STOPS.clear(); SHAPES.clear(); ROUTES.clear(); TRIPS.clear(); STOP_TIMES.clear(); SHAPE_CUMULATIVE_DIST.clear()
 
         with zip_file.open('stops.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
@@ -156,6 +157,18 @@ def download_and_load_gtfs():
         for shape_id in SHAPES:
             SHAPES[shape_id].sort(key=lambda p: p[2])
         print(f"✓ Loaded {len(SHAPES):,} shapes")
+        
+        # Precompute cumulative distances for each shape to avoid repeated calculations
+        for shape_id, shape_points in SHAPES.items():
+            cumulative = [0.0]  # Start with 0 at first point
+            for i in range(len(shape_points) - 1):
+                lat1, lon1, _ = shape_points[i]
+                lat2, lon2, _ = shape_points[i + 1]
+                segment_dist = haversine_distance(lat1, lon1, lat2, lon2)
+                cumulative.append(cumulative[-1] + segment_dist)
+            SHAPE_CUMULATIVE_DIST[shape_id] = cumulative
+        print(f"✓ Precomputed cumulative distances for {len(SHAPE_CUMULATIVE_DIST):,} shapes")
+
 
         with zip_file.open('trips.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
@@ -216,19 +229,97 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     a = math.sin(dlat/2)**2 + math.cos(lat1_r) * math.cos(lat2_r) * math.sin(dlon/2)**2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
+def project_point_to_segment(lat, lon, seg_lat1, seg_lon1, seg_lat2, seg_lon2):
+    """Project a point onto a line segment and return the perpendicular distance.
+    
+    Uses vector projection on the great-circle arc. Returns distance to the 
+    closest point on the segment (which could be an endpoint if the projection 
+    falls outside the segment).
+    """
+    # For short distances (local bus routes), use simplified planar projection
+    # Convert to radians
+    lat_r = math.radians(lat)
+    lon_r = math.radians(lon)
+    seg_lat1_r = math.radians(seg_lat1)
+    seg_lon1_r = math.radians(seg_lon1)
+    seg_lat2_r = math.radians(seg_lat2)
+    seg_lon2_r = math.radians(seg_lon2)
+    
+    # Use equirectangular approximation for local distances
+    # This is accurate enough for city-scale routes
+    x = (lon_r - seg_lon1_r) * math.cos(seg_lat1_r)
+    y = lat_r - seg_lat1_r
+    dx = (seg_lon2_r - seg_lon1_r) * math.cos(seg_lat1_r)
+    dy = seg_lat2_r - seg_lat1_r
+    
+    seg_len_sq = dx * dx + dy * dy
+    if seg_len_sq == 0:
+        # Segment is a point
+        return haversine_distance(lat, lon, seg_lat1, seg_lon1)
+    
+    t = max(0, min(1, (x * dx + y * dy) / seg_len_sq))
+    
+    # Project point onto segment
+    proj_lat = seg_lat1 + t * (seg_lat2 - seg_lat1)
+    proj_lon = seg_lon1 + t * (seg_lon2 - seg_lon1)
+    
+    return haversine_distance(lat, lon, proj_lat, proj_lon)
+
+
 def find_closest_point_on_shape(lat, lon, shape_points):
+    """Find closest point on shape, snapping to both vertices and segments.
+    
+    Returns (closest_idx, min_dist) where:
+    - closest_idx: index of the nearest vertex
+    - min_dist: minimum distance to the shape (could be to a vertex or segment projection)
+    """
     min_dist = float('inf')
     closest_idx = 0
+    
+    # Find closest vertex
     for i, (slat, slon, seq) in enumerate(shape_points):
         dist = haversine_distance(lat, lon, slat, slon)
         if dist < min_dist:
             min_dist = dist
             closest_idx = i
+    
+    # Also check perpendicular projections onto segments adjacent to closest vertex
+    # Check segment before (closest_idx-1 to closest_idx)
+    if closest_idx > 0:
+        seg_lat1, seg_lon1, _ = shape_points[closest_idx - 1]
+        seg_lat2, seg_lon2, _ = shape_points[closest_idx]
+        proj_dist = project_point_to_segment(lat, lon, seg_lat1, seg_lon1, seg_lat2, seg_lon2)
+        if proj_dist < min_dist:
+            min_dist = proj_dist
+            # Keep closest_idx pointing to the vertex end of the segment
+    
+    # Check segment after (closest_idx to closest_idx+1)
+    if closest_idx < len(shape_points) - 1:
+        seg_lat1, seg_lon1, _ = shape_points[closest_idx]
+        seg_lat2, seg_lon2, _ = shape_points[closest_idx + 1]
+        proj_dist = project_point_to_segment(lat, lon, seg_lat1, seg_lon1, seg_lat2, seg_lon2)
+        if proj_dist < min_dist:
+            min_dist = proj_dist
+            # Keep closest_idx pointing to the vertex start of the segment
+    
     return closest_idx, min_dist
 
-def calculate_shape_distance(shape_points, start, end):
+def calculate_shape_distance(shape_points, start, end, shape_id=None):
+    """Calculate distance along a shape between two indices.
+    
+    Uses precomputed cumulative distances if shape_id is provided for O(1) lookup.
+    Falls back to linear scan if cumulative distances unavailable.
+    """
     if start >= end:
         return 0
+    
+    # Use precomputed cumulative distances if available (O(1) operation)
+    if shape_id and shape_id in SHAPE_CUMULATIVE_DIST:
+        cumulative = SHAPE_CUMULATIVE_DIST[shape_id]
+        if start < len(cumulative) and end <= len(cumulative):
+            return cumulative[end] - cumulative[start]
+    
+    # Fallback: calculate on-the-fly (O(n) operation)
     total = 0
     for i in range(start, end):
         lat1, lon1, _ = shape_points[i]
@@ -484,10 +575,12 @@ def process_kiosk_buses(buses):
         route_name = bus.get('route', 'unknown')
 
         # Map kiosk route name back to GTFS route_id
-        # T4508 -> find T450 route_id in ROUTES
-        route_id = None
-        short_name = route_name.replace('8', '', 1) if route_name.endswith('8') else route_name
+        # Prasarana kiosk naming convention: appends '8' to route names (e.g., T4508 -> T450)
+        # This is a heuristic based on observed data, not a documented specification.
+        # Remove trailing '8' if present, as it appears to be added by the kiosk system.
+        short_name = route_name[:-1] if route_name.endswith('8') else route_name
         # Try to find by short_name
+        route_id = None
         for rid, rinfo in ROUTES.items():
             if rinfo.get('short_name') == short_name or rinfo.get('short_name') == route_name:
                 route_id = rid
@@ -670,7 +763,7 @@ def calculate_approaching_buses(stop_id):
         stop_idx, stop_dist = find_closest_point_on_shape(stop_info['lat'], stop_info['lon'], shape)
 
         if bus_idx < stop_idx and is_bus_approaching(bus['latitude'], bus['longitude'], bus_idx, shape, stop_idx):
-            road_dist = calculate_shape_distance(shape, bus_idx, stop_idx)
+            road_dist = calculate_shape_distance(shape, bus_idx, stop_idx, trip_info['shape_id'])
             total_dist = road_dist + bus_dist + stop_dist
 
             if total_dist < 20.0:
