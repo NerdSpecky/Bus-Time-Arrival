@@ -773,6 +773,16 @@ def calculate_approaching_buses(stop_id):
                     route_short_name = ROUTES.get(trip_info['route_id'], {}).get('short_name', bus.get('route_id', 'Unknown'))
                     seen_vehicles.add(vehicle_id)
 
+                    route_path = []
+                    for point in shape[bus_idx:stop_idx + 1]:
+                        route_path.append([point[0], point[1]])
+                    if not route_path:
+                        route_path = [[bus['latitude'], bus['longitude']], [stop_info['lat'], stop_info['lon']]]
+                    elif route_path[0] != [bus['latitude'], bus['longitude']]:
+                        route_path.insert(0, [bus['latitude'], bus['longitude']])
+                    if route_path[-1] != [stop_info['lat'], stop_info['lon']]:
+                        route_path.append([stop_info['lat'], stop_info['lon']])
+
                     approaching.append({
                         'route': route_short_name,
                         'arrival_minutes': arrival_min,
@@ -780,6 +790,7 @@ def calculate_approaching_buses(stop_id):
                         'vehicle_id': vehicle_id,
                         'latitude': bus['latitude'],
                         'longitude': bus['longitude'],
+                        'route_path': route_path,
                         'current_speed_kmh': current_speed,
                         'estimated_speed_kmh': estimated_speed,
                         'status': bus.get('status', 'live'),
@@ -1151,6 +1162,7 @@ def display_stop_map(stop_id):
         const initialBuses = {{ approaching|tojson }};
         const map = L.map('map', { zoomControl: false }).setView([stop.lat, stop.lon], 14);
         const busMarkers = new Map();
+        const routeLines = new Map();
         let hasFittedInitialMarkers = false;
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1190,12 +1202,39 @@ def display_stop_map(stop_id):
                     marker.setLatLng([latitude, longitude]);
                 }
                 marker.bindPopup(popup);
+
+                const linePoints = Array.isArray(bus.route_path) && bus.route_path.length > 1
+                    ? bus.route_path
+                    : [
+                        [latitude, longitude],
+                        [stop.lat, stop.lon]
+                    ];
+
+                let line = routeLines.get(bus.vehicle_id);
+                if (!line) {
+                    line = L.polyline(linePoints, {
+                        color: '#ff6b35',
+                        weight: 3,
+                        opacity: 0.9,
+                        dashArray: '8 8'
+                    }).addTo(map);
+                    routeLines.set(bus.vehicle_id, line);
+                } else {
+                    line.setLatLngs(linePoints);
+                }
             });
 
             busMarkers.forEach((marker, vehicleId) => {
                 if (!visibleIds.has(vehicleId)) {
                     map.removeLayer(marker);
                     busMarkers.delete(vehicleId);
+                }
+            });
+
+            routeLines.forEach((line, vehicleId) => {
+                if (!visibleIds.has(vehicleId)) {
+                    map.removeLayer(line);
+                    routeLines.delete(vehicleId);
                 }
             });
 

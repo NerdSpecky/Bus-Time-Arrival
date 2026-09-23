@@ -18,9 +18,9 @@ const char* ssid = "Maruky";
 const char* password = "muffinbrrrr06";
 // Main Bus Stop ID: 1007233: MRT Stadium Kajang, 1001512: KL1079 KL SENTRAL
 // ===== Flask Server =====
-const char* serverURL = "https://bus-time-arrival.onrender.com/bus/1007233";
-const char* scheduleURL = "https://bus-time-arrival.onrender.com/schedule/1007233";
-const char* qrURL     = "https://bus-time-arrival.onrender.com/display/1007233";
+const char* serverURL = "https://bus-time-arrival.onrender.com/bus/1001512";
+const char* scheduleURL = "https://bus-time-arrival.onrender.com/schedule/1001512";
+const char* qrURL     = "https://bus-time-arrival.onrender.com/display/1001512";
 
 // ===== Pin Definitions =====
 #define EPD_CS      10
