@@ -80,6 +80,7 @@ float lastBatteryVoltage = 0.0f;
 // ===== LED state =====
 unsigned long ledOnTime = 0;
 bool ledActive = false;
+bool touchWasActive = false;
 unsigned long lastTouchLog = 0;
 unsigned long lastTouchTrigger = 0;
 
@@ -101,6 +102,7 @@ bool sleepModeActive = false;
 unsigned long lastWiFiCheck = 0;
 unsigned long touchHoldStart = 0;
 bool touchHeld = false;
+bool touchWake = false;
 
 // ===== Battery voltage reading (calibrated, using analogReadMilliVolts) =====
 float readBatteryVoltage() {
@@ -154,27 +156,38 @@ bool batteryLowConfirmed() {
 // ===== LED + Touch handler =====
 void handleLED() {
   unsigned long now = millis();
-  int touchState = digitalRead(TOUCH_PIN);
+  bool touchActive = digitalRead(TOUCH_PIN) == TOUCH_ACTIVE_STATE;
 
   if (now - lastTouchLog >= TOUCH_LOG_INTERVAL) {
     Serial.print("Touch SIG: ");
-    Serial.println(touchState == TOUCH_ACTIVE_STATE ? "HIGH" : "LOW");
+    Serial.println(touchActive ? "HIGH" : "LOW");
     lastTouchLog = now;
   }
 
-  if (touchState == TOUCH_ACTIVE_STATE && now - lastTouchTrigger >= TOUCH_DEBOUNCE) {
+  if (touchActive && !touchWasActive &&
+      now - lastTouchTrigger >= TOUCH_DEBOUNCE) {
     Serial.println("Touch detected - LED ON");
     digitalWrite(LED_PIN, HIGH);
     ledActive = true;
     ledOnTime = now;
     lastTouchTrigger = now;
   }
+  touchWasActive = touchActive;
 
   if (ledActive && (now - ledOnTime >= LED_DURATION)) {
     Serial.println("LED auto OFF");
     digitalWrite(LED_PIN, LOW);
     ledActive = false;
   }
+}
+
+void waitForTouchRelease() {
+  while (digitalRead(TOUCH_PIN) == TOUCH_ACTIVE_STATE) {
+    delay(20);
+  }
+  touchWasActive = false;
+  touchHeld = false;
+  touchHoldStart = 0;
 }
 
 void waitWithLED(unsigned long durationMs) {
@@ -190,17 +203,24 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  touchWake = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0;
+
   Serial.println("\n=================================");
   Serial.println("Bus Arrival Display System");
   Serial.println("=================================\n");
 
   // Pin setup
   pinMode(LED_PIN, OUTPUT);
-  pinMode(TOUCH_PIN, INPUT_PULLDOWN);
+  pinMode(TOUCH_PIN, INPUT);
   pinMode(BATT_PIN, INPUT);
   analogReadResolution(12);
   analogSetPinAttenuation(BATT_PIN, ADC_11db);
   digitalWrite(LED_PIN, LOW);
+
+  if (touchWake) {
+    Serial.println("Touch wake detected — waiting for release");
+    waitForTouchRelease();
+  }
 
   Serial.println("Initializing display...");
   display.init(115200);
@@ -240,7 +260,7 @@ void loop() {
   handleLED();
   handleTouchRestart();
 
-  if (isNightTime()) {
+  if (isNightTime() && !touchWake) {
     Serial.println("Night mode active — sleeping until next wake cycle");
     digitalWrite(LED_PIN, LOW);
     display.powerOff();
@@ -248,6 +268,8 @@ void loop() {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
     sleepModeActive = true;
+    waitForTouchRelease();
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)TOUCH_PIN, TOUCH_ACTIVE_STATE);
     esp_sleep_enable_timer_wakeup(NIGHT_SLEEP_DURATION_US);
     esp_deep_sleep_start();
     return;
@@ -420,7 +442,7 @@ void connectWiFi() {
     Serial.println("\n✓ WiFi Connected!");
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    configTzTime("MYT-8", "pool.ntp.org", "time.nist.gov");
   } else {
     Serial.println("\n✗ WiFi Failed!");
   }
@@ -460,7 +482,7 @@ void fetchScheduleData() {
   if (WiFi.status() != WL_CONNECTED) {
     scheduleAvailable = false;
     scheduleCount = 0;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 6; i++) {
       scheduleEntries[i].route = "";
       scheduleEntries[i].arrivalMinutes = -1;
     }
@@ -561,6 +583,19 @@ void drawHeaderIcons(float voltage, bool connected, int x, int y) {
   if (!connected) {
     display.drawLine(cx - 10, cy + 10, cx + 8, cy - 8, GxEPD_BLACK);
   }
+}
+
+void drawClock(int x, int y) {
+  struct tm timeinfo;
+  char timeText[6] = "--:--";
+
+  if (getLocalTime(&timeinfo, 100)) {
+    strftime(timeText, sizeof(timeText), "%H:%M", &timeinfo);
+  }
+
+  display.setFont(&FreeMonoBold12pt7b);
+  display.setCursor(x, y);
+  display.print(timeText);
 }
 
 // ===== QR Code Screen =====
@@ -666,7 +701,7 @@ void displayBusArrivals(bool fullRefresh) {
     display.setCursor(20, 35);
     display.print("BUS ARRIVALS");
 
-    drawHeaderIcons(lastBatteryVoltage, WiFi.status() == WL_CONNECTED, 330, 18);
+    drawClock(320, 30);
 
     display.drawLine(20, 45, 380, 45, GxEPD_BLACK);
     display.drawLine(20, 47, 380, 47, GxEPD_BLACK);

@@ -838,6 +838,7 @@ def get_bus_arrivals(stop_id):
 
     return jsonify({
         "stop_id": stop_id,
+        "stop_name": STOPS[stop_id]['name'],
         "buses": compact_buses,
         "total_approaching": len(compact_buses)
     })
