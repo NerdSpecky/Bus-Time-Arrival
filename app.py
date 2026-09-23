@@ -823,16 +823,23 @@ def get_bus_arrivals(stop_id):
     if stop_id not in STOPS:
         return jsonify({"error": "Stop not found"}), 404
 
-    stop_info = STOPS[stop_id]
     approaching = calculate_approaching_buses(stop_id)
+    compact_buses = []
+    for bus in approaching:
+        compact_buses.append({
+            "vehicle_id": bus.get('vehicle_id'),
+            "route": bus.get('route'),
+            "arrival_minutes": bus.get('arrival_minutes'),
+            "latitude": bus.get('latitude'),
+            "longitude": bus.get('longitude'),
+            "distance_km": bus.get('distance_km'),
+            "source": bus.get('source')
+        })
 
     return jsonify({
         "stop_id": stop_id,
-        "stop_name": stop_info['name'],
-        "stop_location": {"lat": stop_info['lat'], "lon": stop_info['lon']},
-        "buses": approaching,
-        "total_approaching": len(approaching),
-        "timestamp": datetime.now(MYT).strftime("%Y-%m-%d %H:%M:%S")
+        "buses": compact_buses,
+        "total_approaching": len(compact_buses)
     })
 
 @app.route('/schedule/<stop_id>')
