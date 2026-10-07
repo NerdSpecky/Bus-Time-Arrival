@@ -89,10 +89,12 @@ unsigned long lastAPIUpdate     = 0;
 unsigned long lastDisplayUpdate = 0;
 unsigned long lastFullRefresh   = 0;
 unsigned long lastBatteryCheck  = 0;
+unsigned long lastClockUpdate   = 0;
 bool qrScreenActive = false;
 
 const unsigned long API_INTERVAL          = 60000;
 const unsigned long DISPLAY_INTERVAL      = 10000;
+const unsigned long CLOCK_INTERVAL        = 60000;
 const unsigned long FULL_REFRESH_INTERVAL = 600000;
 const unsigned long WIFI_RETRY_INTERVAL   = 60000;
 const unsigned long NIGHT_SLEEP_DURATION_US = 30ULL * 60ULL * 1000000ULL;
@@ -251,6 +253,7 @@ void setup() {
   lastDisplayUpdate = millis();
   lastFullRefresh   = millis();
   lastBatteryCheck  = millis();
+  lastClockUpdate   = millis();
 }
 
 // ===== Loop =====
@@ -275,6 +278,11 @@ void loop() {
     return;
   }
   sleepModeActive = false;
+
+  if (!qrScreenActive && now - lastClockUpdate >= CLOCK_INTERVAL) {
+    updateClockPartial();
+    lastClockUpdate = now;
+  }
 
   if (lowBatteryMode) {
     float voltage = readBatteryVoltage();
@@ -596,6 +604,22 @@ void drawClock(int x, int y) {
   display.setFont(&FreeMonoBold12pt7b);
   display.setCursor(x, y);
   display.print(timeText);
+}
+
+void updateClockPartial() {
+  const int clockX = 315;
+  const int clockY = 10;
+  const int clockWidth = 85;
+  const int clockHeight = 35;
+
+  Serial.println("Updating clock (partial)...");
+  display.setPartialWindow(clockX, clockY, clockWidth, clockHeight);
+  display.firstPage();
+  do {
+    display.fillRect(clockX, clockY, clockWidth, clockHeight, GxEPD_WHITE);
+    display.setTextColor(GxEPD_BLACK);
+    drawClock(320, 30);
+  } while (display.nextPage());
 }
 
 // ===== QR Code Screen =====
