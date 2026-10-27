@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="300">
+    <title>Bus Map - {{ stop_info.name }}</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <style>
+        :root { --bg: #0a0a0f; --surface: #13131a; --border: #1e1e2e; --text: #e8e8f0; --muted: #9a9ab5; --accent: #00e5a0; }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-family: Arial, sans-serif; }
+        .header { padding: 16px; border-bottom: 1px solid var(--border); }
+        .header h1 { margin: 0 0 6px; font-size: 20px; }
+        .header p { margin: 0; color: var(--muted); font-size: 13px; }
+        #map { height: calc(100vh - 91px); min-height: 420px; width: 100%; }
+        .leaflet-popup-content { color: #111; }
+        .bus-marker { background: #ff6b35; border: 3px solid white; border-radius: 50%; box-shadow: 0 1px 5px rgba(0,0,0,.45); }
+        .stop-marker { background: var(--accent); border: 3px solid white; border-radius: 50%; box-shadow: 0 1px 5px rgba(0,0,0,.45); }
+        .status { position: fixed; z-index: 1000; left: 16px; bottom: 16px; padding: 8px 10px; border-radius: 6px; background: rgba(10,10,15,.88); color: var(--muted); font-size: 12px; }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>{{ stop_info.name }}</h1>
+        <p>Stop {{ stop_id }} · Buses approaching this stop</p>
+    </header>
+    <div id="map"></div>
+    <div id="status" class="status">Loading bus locations...</div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const stopId = {{ stop_id|tojson }};
+        const stop = {{ {'lat': stop_info.lat, 'lon': stop_info.lon, 'name': stop_info.name}|tojson }};
+        const initialBuses = {{ approaching|tojson }};
+        const map = L.map('map', { zoomControl: false }).setView([stop.lat, stop.lon], 14);
+        const busMarkers = new Map();
+        const routeLines = new Map();
+        let hasFittedInitialMarkers = false;
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        const stopIcon = L.divIcon({ className: 'stop-marker', iconSize: [18, 18], iconAnchor: [9, 9] });
+        L.marker([stop.lat, stop.lon], { icon: stopIcon })
+            .addTo(map)
+            .bindPopup('<strong>' + escapeHtml(stop.name) + '</strong><br>Bus stop');
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>'"]/g, character => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[character]));
+        }
+
+        function updateBuses(buses) {
+            const visibleIds = new Set();
+            buses.forEach(bus => {
+                const latitude = Number(bus.latitude);
+                const longitude = Number(bus.longitude);
+                if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+                visibleIds.add(bus.vehicle_id);
+                const popup = '<strong>Route ' + escapeHtml(bus.route) + '</strong>' +
+                    '<br>Arrival: ' + escapeHtml(bus.arrival_minutes) + ' min' +
+                    '<br>Distance: ' + escapeHtml(bus.distance_km) + ' km' +
+                    '<br>Bus: ' + escapeHtml(bus.vehicle_id);
+                let marker = busMarkers.get(bus.vehicle_id);
+                if (!marker) {
+                    const busIcon = L.divIcon({ className: 'bus-marker', iconSize: [18, 18], iconAnchor: [9, 9] });
+                    marker = L.marker([latitude, longitude], { icon: busIcon }).addTo(map);
+                    busMarkers.set(bus.vehicle_id, marker);
+                } else {
+                    marker.setLatLng([latitude, longitude]);
+                }
+                marker.bindPopup(popup);
+
+                const linePoints = Array.isArray(bus.route_path) && bus.route_path.length > 1
+                    ? bus.route_path
+                    : [
+                        [latitude, longitude],
+                        [stop.lat, stop.lon]
+                    ];
+
+                let line = routeLines.get(bus.vehicle_id);
+                if (!line) {
+                    line = L.polyline(linePoints, {
+                        color: '#ff6b35',
+                        weight: 3,
+                        opacity: 0.9,
+                        dashArray: '8 8'
+                    }).addTo(map);
+                    routeLines.set(bus.vehicle_id, line);
+                } else {
+                    line.setLatLngs(linePoints);
+                }
+            });
+
+            busMarkers.forEach((marker, vehicleId) => {
+                if (!visibleIds.has(vehicleId)) {
+                    map.removeLayer(marker);
+                    busMarkers.delete(vehicleId);
+                }
+            });
+
+            routeLines.forEach((line, vehicleId) => {
+                if (!visibleIds.has(vehicleId)) {
+                    map.removeLayer(line);
+                    routeLines.delete(vehicleId);
+                }
+            });
+
+            if (!hasFittedInitialMarkers && buses.length > 0) {
+                const markerPoints = [[stop.lat, stop.lon], ...buses.map(bus => [Number(bus.latitude), Number(bus.longitude)])];
+                map.fitBounds(markerPoints, { padding: [40, 40], maxZoom: 14 });
+                hasFittedInitialMarkers = true;
+            }
+
+            document.getElementById('status').textContent = buses.length +
+                (buses.length === 1 ? ' bus approaching' : ' buses approaching') + ' · Updated just now';
+        }
+
+        async function refreshBuses() {
+            try {
+                const response = await fetch('/bus/' + encodeURIComponent(stopId));
+                if (!response.ok) throw new Error('Bus data request failed');
+                const data = await response.json();
+                updateBuses(data.buses || []);
+            } catch (error) {
+                document.getElementById('status').textContent = 'Unable to update bus locations';
+            }
+        }
+
+        updateBuses(initialBuses);
+        setInterval(refreshBuses, 30000);
+    </script>
+</body>
+</html>

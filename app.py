@@ -4,7 +4,7 @@ import zipfile
 import io
 import time
 import threading
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify, render_template
 from google.transit import gtfs_realtime_pb2
 from datetime import datetime
 import pytz
@@ -101,7 +101,7 @@ def find_matching_trip(realtime_trip_id):
             return static_trip_id
     return None
 
-def download_and_load_gtfs():
+def download_and_load_gtfs(): #static data
     print("=" * 60)
     print("LOADING GTFS STATIC DATA")
     print("=" * 60)
@@ -890,238 +890,13 @@ def display_stop(stop_id):
     approaching = calculate_approaching_buses(stop_id)
     now = datetime.now(MYT).strftime("%H:%M:%S")
 
-    HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<meta http-equiv="refresh" content="30">
-<title>Bus Arrivals – {{ stop_name }}</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg: #0a0a0f;
-    --surface: #13131a;
-    --border: #1e1e2e;
-    --accent: #00e5a0;
-    --accent2: #ff6b35;
-    --text: #e8e8f0;
-    --muted: #5a5a7a;
-    --arriving: #ff6b35;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Space Grotesk', sans-serif;
-    min-height: 100vh;
-    padding: 16px;
-  }
-
-  /* Header */
-  .header {
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 14px;
-    margin-bottom: 20px;
-  }
-  .header-top {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 6px;
-  }
-  .dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--accent);
-    animation: pulse 2s infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(0.8); }
-  }
-  .label {
-    font-size: 10px;
-    letter-spacing: 0.2em;
-    color: var(--accent);
-    text-transform: uppercase;
-    font-family: 'DM Mono', monospace;
-  }
-  .stop-name {
-    font-size: 22px;
-    font-weight: 700;
-    line-height: 1.2;
-    color: var(--text);
-  }
-  .stop-id {
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 4px;
-  }
-
-  /* Bus cards */
-  .bus-list { display: flex; flex-direction: column; gap: 10px; }
-
-  .bus-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 14px 16px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: relative;
-    overflow: hidden;
-  }
-  .bus-card::before {
-    content: '';
-    position: absolute;
-    left: 0; top: 0; bottom: 0;
-    width: 3px;
-    background: var(--accent);
-    border-radius: 3px 0 0 3px;
-  }
-  .bus-card.arriving::before { background: var(--arriving); }
-
-  .bus-left { flex: 1; }
-  .route-badge {
-    display: inline-block;
-    background: rgba(0, 229, 160, 0.1);
-    border: 1px solid rgba(0, 229, 160, 0.3);
-    color: var(--accent);
-    font-family: 'DM Mono', monospace;
-    font-size: 13px;
-    font-weight: 500;
-    padding: 3px 10px;
-    border-radius: 6px;
-    margin-bottom: 6px;
-  }
-  .bus-card.arriving .route-badge {
-    background: rgba(255, 107, 53, 0.1);
-    border-color: rgba(255, 107, 53, 0.3);
-    color: var(--arriving);
-  }
-  .bus-detail {
-    font-size: 11px;
-    color: var(--muted);
-    font-family: 'DM Mono', monospace;
-  }
-
-  .bus-right { text-align: right; }
-  .arrival-time {
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--accent);
-    line-height: 1;
-    font-family: 'DM Mono', monospace;
-  }
-  .bus-card.arriving .arrival-time {
-    color: var(--arriving);
-    font-size: 22px;
-  }
-  .arrival-unit {
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 2px;
-  }
-
-  /* Empty state */
-  .empty {
-    text-align: center;
-    padding: 48px 20px;
-    color: var(--muted);
-  }
-  .empty-icon { font-size: 40px; margin-bottom: 12px; }
-  .empty-text { font-size: 14px; }
-
-  /* Footer */
-  .footer {
-    margin-top: 24px;
-    padding-top: 14px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .footer-text {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    color: var(--muted);
-  }
-  .refresh-note {
-    font-size: 10px;
-    color: var(--muted);
-    font-family: 'DM Mono', monospace;
-  }
-    .map-link {
-        display: inline-block;
-        margin-top: 12px;
-        padding: 8px 12px;
-        border: 1px solid var(--accent);
-        border-radius: 6px;
-        color: var(--accent);
-        text-decoration: none;
-        font-size: 12px;
-    }
-</style>
-</head>
-<body>
-
-<div class="header">
-  <div class="header-top">
-    <div class="dot"></div>
-    <span class="label">Live Bus Arrivals</span>
-  </div>
-  <div class="stop-name">{{ stop_name }}</div>
-  <div class="stop-id">Stop {{ stop_id }}</div>
-</div>
-
-<div class="bus-list">
-  {% if buses %}
-    {% for bus in buses %}
-    <div class="bus-card {% if bus.arrival_minutes < 1 %}arriving{% endif %}">
-      <div class="bus-left">
-        <div class="route-badge">{{ bus.route }}</div>
-        <div class="bus-detail">{{ bus.distance_km }} km away &nbsp;·&nbsp; {{ bus.estimated_speed_kmh }} km/h</div>
-      </div>
-      <div class="bus-right">
-        {% if bus.arrival_minutes < 1 %}
-          <div class="arrival-time">ARRIVING</div>
-        {% else %}
-          <div class="arrival-time">{{ bus.arrival_minutes }}</div>
-          <div class="arrival-unit">min</div>
-        {% endif %}
-      </div>
-    </div>
-    {% endfor %}
-  {% else %}
-    <div class="empty">
-      <div class="empty-icon">🚌</div>
-      <div class="empty-text">No buses approaching this stop right now.</div>
-    </div>
-  {% endif %}
-</div>
-
-<div class="footer">
-  <span class="footer-text">Updated {{ now }}</span>
-  <span class="refresh-note">Auto-refresh 30s</span>
-</div>
-<a class="map-link" href="/display/{{ stop_id }}/map">View live bus map</a>
-
-</body>
-</html>
-"""
-    from jinja2 import Template
-    tmpl = Template(HTML)
-    rendered = tmpl.render(
+    return render_template(
+        'display_stop.html',
         stop_name=stop_info['name'],
         stop_id=stop_id,
         buses=approaching[:5],
-        now=now
+        now=now,
     )
-    return rendered
 
 @app.route('/display/<stop_id>/map')
 def display_stop_map(stop_id):
@@ -1132,147 +907,12 @@ def display_stop_map(stop_id):
         stop_info = STOPS[stop_id]
         approaching = calculate_approaching_buses(stop_id)
 
-        return render_template_string('''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="300">
-    <title>Bus Map - {{ stop_info.name }}</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <style>
-        :root { --bg: #0a0a0f; --surface: #13131a; --border: #1e1e2e; --text: #e8e8f0; --muted: #9a9ab5; --accent: #00e5a0; }
-        * { box-sizing: border-box; }
-        body { margin: 0; background: var(--bg); color: var(--text); font-family: Arial, sans-serif; }
-        .header { padding: 16px; border-bottom: 1px solid var(--border); }
-        .header h1 { margin: 0 0 6px; font-size: 20px; }
-        .header p { margin: 0; color: var(--muted); font-size: 13px; }
-        #map { height: calc(100vh - 91px); min-height: 420px; width: 100%; }
-        .leaflet-popup-content { color: #111; }
-        .bus-marker { background: #ff6b35; border: 3px solid white; border-radius: 50%; box-shadow: 0 1px 5px rgba(0,0,0,.45); }
-        .stop-marker { background: var(--accent); border: 3px solid white; border-radius: 50%; box-shadow: 0 1px 5px rgba(0,0,0,.45); }
-        .status { position: fixed; z-index: 1000; left: 16px; bottom: 16px; padding: 8px 10px; border-radius: 6px; background: rgba(10,10,15,.88); color: var(--muted); font-size: 12px; }
-    </style>
-</head>
-<body>
-    <header class="header">
-        <h1>{{ stop_info.name }}</h1>
-        <p>Stop {{ stop_id }} · Buses approaching this stop</p>
-    </header>
-    <div id="map"></div>
-    <div id="status" class="status">Loading bus locations...</div>
-
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script>
-        const stopId = {{ stop_id|tojson }};
-        const stop = {{ {'lat': stop_info.lat, 'lon': stop_info.lon, 'name': stop_info.name}|tojson }};
-        const initialBuses = {{ approaching|tojson }};
-        const map = L.map('map', { zoomControl: false }).setView([stop.lat, stop.lon], 14);
-        const busMarkers = new Map();
-        const routeLines = new Map();
-        let hasFittedInitialMarkers = false;
-
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
-
-        const stopIcon = L.divIcon({ className: 'stop-marker', iconSize: [18, 18], iconAnchor: [9, 9] });
-        L.marker([stop.lat, stop.lon], { icon: stopIcon })
-            .addTo(map)
-            .bindPopup('<strong>' + escapeHtml(stop.name) + '</strong><br>Bus stop');
-
-        function escapeHtml(value) {
-            return String(value).replace(/[&<>'"]/g, character => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
-            }[character]));
-        }
-
-        function updateBuses(buses) {
-            const visibleIds = new Set();
-            buses.forEach(bus => {
-                const latitude = Number(bus.latitude);
-                const longitude = Number(bus.longitude);
-                if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
-
-                visibleIds.add(bus.vehicle_id);
-                const popup = '<strong>Route ' + escapeHtml(bus.route) + '</strong>' +
-                    '<br>Arrival: ' + escapeHtml(bus.arrival_minutes) + ' min' +
-                    '<br>Distance: ' + escapeHtml(bus.distance_km) + ' km' +
-                    '<br>Bus: ' + escapeHtml(bus.vehicle_id);
-                let marker = busMarkers.get(bus.vehicle_id);
-                if (!marker) {
-                    const busIcon = L.divIcon({ className: 'bus-marker', iconSize: [18, 18], iconAnchor: [9, 9] });
-                    marker = L.marker([latitude, longitude], { icon: busIcon }).addTo(map);
-                    busMarkers.set(bus.vehicle_id, marker);
-                } else {
-                    marker.setLatLng([latitude, longitude]);
-                }
-                marker.bindPopup(popup);
-
-                const linePoints = Array.isArray(bus.route_path) && bus.route_path.length > 1
-                    ? bus.route_path
-                    : [
-                        [latitude, longitude],
-                        [stop.lat, stop.lon]
-                    ];
-
-                let line = routeLines.get(bus.vehicle_id);
-                if (!line) {
-                    line = L.polyline(linePoints, {
-                        color: '#ff6b35',
-                        weight: 3,
-                        opacity: 0.9,
-                        dashArray: '8 8'
-                    }).addTo(map);
-                    routeLines.set(bus.vehicle_id, line);
-                } else {
-                    line.setLatLngs(linePoints);
-                }
-            });
-
-            busMarkers.forEach((marker, vehicleId) => {
-                if (!visibleIds.has(vehicleId)) {
-                    map.removeLayer(marker);
-                    busMarkers.delete(vehicleId);
-                }
-            });
-
-            routeLines.forEach((line, vehicleId) => {
-                if (!visibleIds.has(vehicleId)) {
-                    map.removeLayer(line);
-                    routeLines.delete(vehicleId);
-                }
-            });
-
-            if (!hasFittedInitialMarkers && buses.length > 0) {
-                const markerPoints = [[stop.lat, stop.lon], ...buses.map(bus => [Number(bus.latitude), Number(bus.longitude)])];
-                map.fitBounds(markerPoints, { padding: [40, 40], maxZoom: 14 });
-                hasFittedInitialMarkers = true;
-            }
-
-            document.getElementById('status').textContent = buses.length +
-                (buses.length === 1 ? ' bus approaching' : ' buses approaching') + ' · Updated just now';
-        }
-
-        async function refreshBuses() {
-            try {
-                const response = await fetch('/bus/' + encodeURIComponent(stopId));
-                if (!response.ok) throw new Error('Bus data request failed');
-                const data = await response.json();
-                updateBuses(data.buses || []);
-            } catch (error) {
-                document.getElementById('status').textContent = 'Unable to update bus locations';
-            }
-        }
-
-        updateBuses(initialBuses);
-        setInterval(refreshBuses, 30000);
-    </script>
-</body>
-</html>
-        ''', stop_info=stop_info, stop_id=stop_id, approaching=approaching)
+        return render_template(
+            'display_stop_map.html',
+            stop_info=stop_info,
+            stop_id=stop_id,
+            approaching=approaching,
+        )
 
 @app.route('/reload')
 def reload_gtfs():
@@ -1331,70 +971,14 @@ def debug_home():
         ("Reload GTFS", "/reload"),
         ("Test Categories", "/debug/check-categories"),
     ]
-    return render_template_string('''
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bus Arrival Debug</title>
-  <style>
-    :root { --bg:#0b1020; --card:#121a2d; --text:#f4f7ff; --muted:#8da0c3; --accent:#4fd1c5; --accent2:#7c93ff; --border:#23314d; }
-    * { box-sizing: border-box; }
-    body { margin:0; font-family: Arial, sans-serif; background:var(--bg); color:var(--text); padding:24px; }
-    .wrap { max-width:960px; margin:0 auto; }
-    h1 { margin:0 0 8px; font-size:28px; }
-    p { color:var(--muted); line-height:1.5; }
-    .grid { display:grid; grid-template-columns: 1.2fr 0.8fr; gap:20px; margin-top:24px; }
-    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:18px; }
-    .card h2 { margin-top:0; font-size:18px; }
-    .links { display:grid; gap:10px; }
-    .link-btn { display:block; text-decoration:none; padding:12px 14px; border-radius:10px; background:linear-gradient(135deg, var(--accent2), var(--accent)); color:white; font-weight:600; }
-    .link-btn.secondary { background:transparent; border:1px solid var(--border); color:var(--text); }
-    .stop-list { display:grid; gap:8px; margin-top:10px; }
-    .stop-item { padding:10px 12px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid var(--border); }
-    .stop-item a { color:var(--accent); text-decoration:none; }
-    .badge { color:var(--accent); font-size:12px; text-transform:uppercase; letter-spacing:0.08em; }
-    .footer { margin-top:18px; color:var(--muted); font-size:13px; }
-    @media (max-width: 700px) { .grid { grid-template-columns:1fr; } }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h1>Bus Arrival Debug Center</h1>
-    <p>Use these tools to inspect WebSocket activity, GTFS data, live bus feeds, and route matching.</p>
-
-    <div class="grid">
-      <div class="card">
-        <h2>Debug Tools</h2>
-        <div class="links">
-          {% for label, url in debug_links %}
-            <a class="link-btn {{ 'secondary' if label in ['Stats','Reload GTFS'] else '' }}" href="{{ url }}">{{ label }}</a>
-          {% endfor %}
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Sample Stop Checks</h2>
-        <div class="badge">Quick access</div>
-        <div class="stop-list">
-          {% for stop in sample_stops %}
-            <div class="stop-item">
-              <strong>{{ stop.stop_name }}</strong><br>
-              <a href="/debug/stop/{{ stop.stop_id }}">Inspect stop {{ stop.stop_id }}</a>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-
-    <div class="footer">
-      Loaded routes: {{ routes }} | stops: {{ stops }} | trips: {{ trips }}
-    </div>
-  </div>
-</body>
-</html>
-    ''', debug_links=debug_links, sample_stops=sample_stops, routes=len(ROUTES), stops=len(STOPS), trips=len(TRIPS))
+    return render_template(
+        'debug_home.html',
+        debug_links=debug_links,
+        sample_stops=sample_stops,
+        routes=len(ROUTES),
+        stops=len(STOPS),
+        trips=len(TRIPS),
+    )
 
 # ============================================
 # DEBUG ENDPOINTS
