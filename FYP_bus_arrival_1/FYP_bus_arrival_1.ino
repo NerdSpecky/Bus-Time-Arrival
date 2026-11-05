@@ -11,6 +11,7 @@
 #include <Fonts/FreeMonoBold24pt7b.h>
 #include <time.h>
 #include <esp_sleep.h>
+#include <driver/gpio.h>
 #include "qrcode_ric.h"
 
 // ===== WiFi Credentials =====
@@ -44,7 +45,7 @@ const char* qrURL     = "https://bus-time-arrival.onrender.com/display/1001512";
 #define TOUCH_LOG_INTERVAL  1000
 #define TOUCH_DEBOUNCE      250
 #define TOUCH_RESTART_HOLD_MS 5000
-#define LED_DURATION        30000   // 30 seconds
+#define TOUCH_LED_DURATION  30000
 
 // ===== Display Initialization =====
 GxEPD2_BW<GxEPD2_420_GDEY042T81, GxEPD2_420_GDEY042T81::HEIGHT> display(
@@ -78,9 +79,11 @@ float lastDistanceKm[3]     = {0, 0, 0};
 float lastBatteryVoltage = 0.0f;
 
 // ===== LED state =====
-unsigned long ledOnTime = 0;
-bool ledActive = false;
+bool scheduledLEDOn = false;
+bool scheduledLEDStateKnown = false;
 bool touchWasActive = false;
+bool touchLEDActive = false;
+unsigned long touchLEDOnTime = 0;
 unsigned long lastTouchLog = 0;
 unsigned long lastTouchTrigger = 0;
 
@@ -155,39 +158,55 @@ bool batteryLowConfirmed() {
   return lowCount >= BATT_LOW_CONFIRM_COUNT;
 }
 
-// ===== LED + Touch handler =====
+// ===== Scheduled LED + Touch handler =====
 void handleLED() {
   unsigned long now = millis();
   bool touchActive = digitalRead(TOUCH_PIN) == TOUCH_ACTIVE_STATE;
 
-  if (now - lastTouchLog >= TOUCH_LOG_INTERVAL) {
+  if (now - lastTouchLog >= TOUCH_LOG_INTERVAL || touchActive != touchWasActive) {
     Serial.print("Touch SIG: ");
     Serial.println(touchActive ? "HIGH" : "LOW");
     lastTouchLog = now;
   }
 
-  if (touchActive && !touchWasActive &&
-      now - lastTouchTrigger >= TOUCH_DEBOUNCE) {
-    Serial.println("Touch detected - LED ON");
-    digitalWrite(LED_PIN, HIGH);
-    ledActive = true;
-    ledOnTime = now;
+  if (touchActive && !touchWasActive && now - lastTouchTrigger >= TOUCH_DEBOUNCE) {
+    Serial.println("Touch detected - LED ON for 30 seconds");
+    touchLEDActive = true;
+    touchLEDOnTime = now;
     lastTouchTrigger = now;
   }
   touchWasActive = touchActive;
 
-  if (ledActive && (now - ledOnTime >= LED_DURATION)) {
-    Serial.println("LED auto OFF");
-    digitalWrite(LED_PIN, LOW);
-    ledActive = false;
+  if (touchLEDActive && now - touchLEDOnTime >= TOUCH_LED_DURATION) {
+    touchLEDActive = false;
   }
+
+  struct tm timeinfo;
+  static bool timeUnavailableLogged = false;
+  if (getLocalTime(&timeinfo, 100)) {
+    timeUnavailableLogged = false;
+    bool shouldBeOn = timeinfo.tm_hour >= 19 || timeinfo.tm_hour < 7;
+    if (!scheduledLEDStateKnown || shouldBeOn != scheduledLEDOn) {
+      if (scheduledLEDStateKnown && scheduledLEDOn && !shouldBeOn) {
+        touchLEDActive = false;
+      }
+      scheduledLEDOn = shouldBeOn;
+      scheduledLEDStateKnown = true;
+      Serial.println(shouldBeOn ? "Scheduled LED ON (7 PM–7 AM)" : "Scheduled LED OFF (7 AM–7 PM)");
+    }
+  } else if (!timeUnavailableLogged) {
+    Serial.println("Local time unavailable — scheduled LED state unchanged");
+    timeUnavailableLogged = true;
+  }
+
+  bool ledShouldBeOn = (scheduledLEDStateKnown && scheduledLEDOn) || touchLEDActive;
+  digitalWrite(LED_PIN, ledShouldBeOn ? HIGH : LOW);
 }
 
 void waitForTouchRelease() {
   while (digitalRead(TOUCH_PIN) == TOUCH_ACTIVE_STATE) {
     delay(20);
   }
-  touchWasActive = false;
   touchHeld = false;
   touchHoldStart = 0;
 }
@@ -207,6 +226,13 @@ void setup() {
 
   touchWake = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0;
 
+  gpio_deep_sleep_hold_dis();
+  esp_err_t holdReleaseResult = gpio_hold_dis((gpio_num_t)LED_PIN);
+  if (holdReleaseResult != ESP_OK) {
+    Serial.print("Failed to release LED GPIO hold: ");
+    Serial.println(esp_err_to_name(holdReleaseResult));
+  }
+
   Serial.println("\n=================================");
   Serial.println("Bus Arrival Display System");
   Serial.println("=================================\n");
@@ -215,9 +241,10 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   pinMode(TOUCH_PIN, INPUT);
   pinMode(BATT_PIN, INPUT);
+  digitalWrite(LED_PIN, LOW);
+  touchWasActive = digitalRead(TOUCH_PIN) == TOUCH_ACTIVE_STATE;
   analogReadResolution(12);
   analogSetPinAttenuation(BATT_PIN, ADC_11db);
-  digitalWrite(LED_PIN, LOW);
 
   if (touchWake) {
     Serial.println("Touch wake detected — waiting for release");
@@ -265,7 +292,13 @@ void loop() {
 
   if (isNightTime() && !touchWake) {
     Serial.println("Night mode active — sleeping until next wake cycle");
-    digitalWrite(LED_PIN, LOW);
+    esp_err_t holdResult = gpio_hold_en((gpio_num_t)LED_PIN);
+    if (holdResult != ESP_OK) {
+      Serial.print("Failed to hold LED GPIO for deep sleep: ");
+      Serial.println(esp_err_to_name(holdResult));
+      return;
+    }
+    gpio_deep_sleep_hold_en();
     display.powerOff();
     display.hibernate();
     WiFi.disconnect(true);
