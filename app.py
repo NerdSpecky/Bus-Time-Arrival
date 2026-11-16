@@ -905,6 +905,7 @@ def get_bus_arrivals(stop_id):
             "latitude": bus.get('latitude'),
             "longitude": bus.get('longitude'),
             "distance_km": bus.get('distance_km'),
+            "route_path": bus.get('route_path'),
             "source": bus.get('source')
         })
 
