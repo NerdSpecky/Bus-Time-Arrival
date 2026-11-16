@@ -28,6 +28,9 @@ STOP_TIMES = {}
 SHAPE_CUMULATIVE_DIST = {}  # shape_id -> [0, d1, d1+d2, ...] cumulative distances per vertex
 BUS_CACHE = {}          # vehicle_id -> {last_seen, data, visible}
 KIOSK_CACHE = {}        # vehicle_id -> {last_seen, data}
+BUS_PROGRESS_HISTORY = {}
+BUS_PROGRESS_LOCK = threading.Lock()
+BUS_PROGRESS_LAST_CLEANUP = 0
 CACHE_TIMEOUT = 180
 KIOSK_TIMEOUT = 300
 
@@ -453,6 +456,62 @@ def is_bus_approaching(bus_lat, bus_lon, bus_idx, shape, stop_idx):
     # If bus is moving within 90 degrees toward the stop, it's approaching
     return diff < 90
 
+def get_bus_progress_direction(vehicle_id, shape_id, bus_idx, shape, timestamp):
+    """Infer direction from meaningful progress along the matched route shape."""
+    global BUS_PROGRESS_LAST_CLEANUP
+
+    if not vehicle_id or bus_idx < 0 or bus_idx >= len(shape):
+        return None
+
+    now = time.time()
+    try:
+        observed_at = float(timestamp)
+    except (TypeError, ValueError):
+        observed_at = now
+
+    cumulative = SHAPE_CUMULATIVE_DIST.get(shape_id)
+    if cumulative and bus_idx < len(cumulative):
+        progress = cumulative[bus_idx]
+    else:
+        progress = sum(
+            haversine_distance(*shape[index][:2], *shape[index + 1][:2])
+            for index in range(bus_idx)
+        )
+
+    history_key = (vehicle_id, shape_id)
+    with BUS_PROGRESS_LOCK:
+        if now - BUS_PROGRESS_LAST_CLEANUP > 600:
+            stale_keys = [
+                key for key, entry in BUS_PROGRESS_HISTORY.items()
+                if now - entry['last_observed_at'] > 600
+            ]
+            for key in stale_keys:
+                del BUS_PROGRESS_HISTORY[key]
+            BUS_PROGRESS_LAST_CLEANUP = now
+
+        previous = BUS_PROGRESS_HISTORY.get(history_key)
+        if previous is None or observed_at - previous['last_observed_at'] > CACHE_TIMEOUT:
+            BUS_PROGRESS_HISTORY[history_key] = {
+                'progress': progress,
+                'last_observed_at': observed_at,
+                'direction': None,
+                'last_movement_at': None,
+            }
+            return None
+
+        if observed_at > previous['last_observed_at']:
+            progress_delta = progress - previous['progress']
+            if abs(progress_delta) >= 0.02:
+                previous['direction'] = 1 if progress_delta > 0 else -1
+                previous['progress'] = progress
+                previous['last_movement_at'] = observed_at
+            previous['last_observed_at'] = observed_at
+
+        last_movement_at = previous['last_movement_at']
+        if last_movement_at is not None and now - last_movement_at <= CACHE_TIMEOUT:
+            return previous['direction']
+        return None
+
 # ============================================
 # GTFS REALTIME (existing buses, non-T450)
 # ============================================
@@ -762,7 +821,20 @@ def calculate_approaching_buses(stop_id):
         bus_idx, bus_dist = find_closest_point_on_shape(bus['latitude'], bus['longitude'], shape)
         stop_idx, stop_dist = find_closest_point_on_shape(stop_info['lat'], stop_info['lon'], shape)
 
-        if bus_idx < stop_idx and is_bus_approaching(bus['latitude'], bus['longitude'], bus_idx, shape, stop_idx):
+        progress_direction = get_bus_progress_direction(
+            vehicle_id,
+            trip_info['shape_id'],
+            bus_idx,
+            shape,
+            bus.get('timestamp'),
+        )
+        is_approaching = (
+            progress_direction > 0
+            if progress_direction is not None
+            else is_bus_approaching(bus['latitude'], bus['longitude'], bus_idx, shape, stop_idx)
+        )
+
+        if bus_idx < stop_idx and is_approaching:
             road_dist = calculate_shape_distance(shape, bus_idx, stop_idx, trip_info['shape_id'])
             total_dist = road_dist + bus_dist + stop_dist
 

@@ -20,7 +20,6 @@ const char* password = "muffinbrrrr06";
 // Main Bus Stop ID: 1007233: MRT Stadium Kajang, 1001512: KL1079 KL SENTRAL
 // ===== Flask Server =====
 const char* serverURL = "https://bus-time-arrival.onrender.com/bus/1001512";
-const char* scheduleURL = "https://bus-time-arrival.onrender.com/schedule/1001512";
 const char* qrURL     = "https://bus-time-arrival.onrender.com/display/1001512";
 
 // ===== Pin Definitions =====
@@ -63,13 +62,6 @@ Bus buses[3];
 int busCount = 0;
 int lastBusCount = 0;
 String stopName = "";
-struct ScheduleEntry {
-  String route;
-  int arrivalMinutes;
-};
-ScheduleEntry scheduleEntries[6];
-int scheduleCount = 0;
-bool scheduleAvailable = false;
 
 // ===== Stored values at last API update =====
 float lastArrivalMinutes[3] = {0, 0, 0};
@@ -93,7 +85,7 @@ unsigned long lastBatteryCheck  = 0;
 unsigned long lastClockUpdate   = 0;
 bool qrScreenActive = false;
 
-const unsigned long API_INTERVAL          = 60000;
+const unsigned long API_INTERVAL          = 30000;
 const unsigned long DISPLAY_INTERVAL      = 10000;
 const unsigned long CLOCK_INTERVAL        = 60000;
 const unsigned long FULL_REFRESH_INTERVAL = 600000;
@@ -253,7 +245,6 @@ void setup() {
   }
 
   fetchBusData();
-  fetchScheduleData();
   displayBusArrivals(true);
   lastAPIUpdate     = millis();
   lastDisplayUpdate = millis();
@@ -338,7 +329,6 @@ void loop() {
     if (now - lastWiFiCheck >= WIFI_RETRY_INTERVAL) {
       lastWiFiCheck = now;
       fetchBusData();
-      fetchScheduleData();
 
       if (busCount > 0) {
         qrScreenActive = false;
@@ -356,7 +346,6 @@ void loop() {
       connectWiFi();
       if (WiFi.status() == WL_CONNECTED) {
         fetchBusData();
-        fetchScheduleData();
         qrScreenActive = false;
         displayBusArrivals(true);
         lastAPIUpdate = millis();
@@ -373,11 +362,10 @@ void loop() {
     return;
   }
 
-  // Fetch new API data every 60 seconds
+  // Fetch new bus data every 30 seconds
   if (now - lastAPIUpdate >= API_INTERVAL) {
     Serial.println("\nFetching new API data...");
     fetchBusData();
-    fetchScheduleData();
 
     for (int i = 0; i < busCount; i++) {
       lastArrivalMinutes[i] = buses[i].arrivalMinutes;
@@ -492,63 +480,6 @@ void fetchBusData() {
     Serial.print("✗ HTTP Error: ");
     Serial.println(httpCode);
     showQRScreen(false);
-  }
-
-  http.end();
-}
-
-// ===== Fetch Schedule Data =====
-void fetchScheduleData() {
-  if (WiFi.status() != WL_CONNECTED) {
-    scheduleAvailable = false;
-    scheduleCount = 0;
-    for (int i = 0; i < 6; i++) {
-      scheduleEntries[i].route = "";
-      scheduleEntries[i].arrivalMinutes = -1;
-    }
-    return;
-  }
-
-  HTTPClient http;
-  http.begin(scheduleURL);
-  http.setTimeout(10000);
-
-  int httpCode = http.GET();
-  Serial.print("Schedule HTTP Code: ");
-  Serial.println(httpCode);
-
-  if (httpCode == 200) {
-    String payload = http.getString();
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, payload);
-
-    if (!error) {
-      scheduleAvailable = doc["available"].as<bool>();
-      scheduleCount = 0;
-      for (int i = 0; i < 6; i++) {
-        scheduleEntries[i].route = "";
-        scheduleEntries[i].arrivalMinutes = -1;
-      }
-
-      if (scheduleAvailable) {
-        JsonArray schedules = doc["schedules"].as<JsonArray>();
-        for (JsonVariant entry : schedules) {
-          if (scheduleCount >= 6) break;
-          scheduleEntries[scheduleCount].route = entry["route"].as<String>();
-          scheduleEntries[scheduleCount].arrivalMinutes = (int)(entry["arrival_minutes"].as<float>() + 0.5f);
-          scheduleCount++;
-        }
-        if (scheduleCount == 0) {
-          scheduleAvailable = false;
-        }
-      }
-    } else {
-      scheduleAvailable = false;
-      scheduleCount = 0;
-    }
-  } else {
-    scheduleAvailable = false;
-    scheduleCount = 0;
   }
 
   http.end();
