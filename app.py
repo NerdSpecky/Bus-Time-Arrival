@@ -125,16 +125,16 @@ def download_and_load_gtfs(): #static data
                     'lat': float(row['stop_lat']),
                     'lon': float(row['stop_lon'])
                 }
-        print(f"✓ Loaded {len(STOPS):,} stops")
+        print(f"[OK] Loaded {len(STOPS):,} stops")
         # Create category-based directories for debugging/inspection
         try:
             base_dir = os.path.join(os.getcwd(), SAFE_CAT_DIR, 'bus')
             os.makedirs(base_dir, exist_ok=True)
             for stop_id in STOPS.keys():
                 os.makedirs(os.path.join(base_dir, stop_id), exist_ok=True)
-            print(f"✓ Created local directories under {base_dir} for {len(STOPS):,} stops")
+            print(f"[OK] Created local directories under {base_dir} for {len(STOPS):,} stops")
         except Exception as e:
-            print(f"✗ ERROR creating category directories: {e}")
+            print(f"[ERROR] creating category directories: {e}")
 
         with zip_file.open('routes.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
@@ -144,7 +144,7 @@ def download_and_load_gtfs(): #static data
                     'long_name': row['route_long_name'],
                     'shapes': set()
                 }
-        print(f"✓ Loaded {len(ROUTES):,} routes")
+        print(f"[OK] Loaded {len(ROUTES):,} routes")
 
         with zip_file.open('shapes.txt') as f:
             reader = csv.DictReader(io.TextIOWrapper(f, encoding='utf-8'))
@@ -159,7 +159,7 @@ def download_and_load_gtfs(): #static data
                 ))
         for shape_id in SHAPES:
             SHAPES[shape_id].sort(key=lambda p: p[2])
-        print(f"✓ Loaded {len(SHAPES):,} shapes")
+        print(f"[OK] Loaded {len(SHAPES):,} shapes")
         
         # Precompute cumulative distances for each shape to avoid repeated calculations
         for shape_id, shape_points in SHAPES.items():
@@ -170,7 +170,7 @@ def download_and_load_gtfs(): #static data
                 segment_dist = haversine_distance(lat1, lon1, lat2, lon2)
                 cumulative.append(cumulative[-1] + segment_dist)
             SHAPE_CUMULATIVE_DIST[shape_id] = cumulative
-        print(f"✓ Precomputed cumulative distances for {len(SHAPE_CUMULATIVE_DIST):,} shapes")
+        print(f"[OK] Precomputed cumulative distances for {len(SHAPE_CUMULATIVE_DIST):,} shapes")
 
 
         with zip_file.open('trips.txt') as f:
@@ -183,7 +183,7 @@ def download_and_load_gtfs(): #static data
                 }
                 if row['route_id'] in ROUTES:
                     ROUTES[row['route_id']]['shapes'].add(row['shape_id'])
-        print(f"✓ Loaded {len(TRIPS):,} trips")
+        print(f"[OK] Loaded {len(TRIPS):,} trips")
 
         count = 0
         with zip_file.open('stop_times.txt') as f:
@@ -210,13 +210,13 @@ def download_and_load_gtfs(): #static data
 
         for stop_id in STOP_TIMES:
             STOP_TIMES[stop_id].sort(key=lambda item: (parse_gtfs_time(item['arrival_time']), item['stop_sequence'], item['trip_id']))
-        print(f"✓ Loaded {count:,} stop times")
+        print(f"[OK] Loaded {count:,} stop times")
         print("=" * 60)
-        print("✓ GTFS DATA LOADED")
+        print("[OK] GTFS DATA LOADED")
         print("=" * 60)
         return True
     except Exception as e:
-        print(f"✗ ERROR loading GTFS: {e}")
+        print(f"[ERROR] loading GTFS: {e}")
         import traceback; traceback.print_exc()
         return False
 
@@ -564,7 +564,7 @@ def fetch_live_buses():
 
         return buses
     except Exception as e:
-        print(f"✗ GTFS fetch error: {e}")
+        print(f"[ERROR] GTFS fetch error: {e}")
         return []
 
 def get_all_buses_with_cache():
@@ -604,14 +604,14 @@ def get_fresh_sid():
         raw = r.text
         json_start = raw.find('{')
         if json_start == -1:
-            print("✗ No JSON in handshake")
+            print("[ERROR] No JSON in handshake")
             return None
         handshake = json.loads(raw[json_start:raw.rfind('}')+1])
         sid = handshake.get('sid')
-        print(f"✓ Fresh sid: {sid}")
+        print(f"[OK] Fresh sid: {sid}")
         return sid
     except Exception as e:
-        print(f"✗ Handshake error: {e}")
+        print(f"[ERROR] Handshake error: {e}")
         return None
 
 def decode_kiosk_payload(raw_data):
@@ -666,7 +666,7 @@ def process_kiosk_buses(buses):
         count += 1
 
     if count > 0:
-        print(f"✓ Kiosk WS: updated {count} buses")
+        print(f"[OK] Kiosk WS: updated {count} buses")
 
 def build_subscribe_payload(sid, route, provider):
     """Build Socket.IO v2 emit payload for onFts-reload"""
@@ -766,7 +766,7 @@ def start_websocket_thread():
     global ws_thread
     ws_thread = threading.Thread(target=run_websocket, daemon=True)
     ws_thread.start()
-    print("✓ WebSocket thread started")
+    print("[OK] WebSocket thread started")
 
 # ============================================
 # ARRIVAL CALCULATION (shared logic)
@@ -973,19 +973,19 @@ def display_stop(stop_id):
 
 @app.route('/display/<stop_id>/map')
 def display_stop_map(stop_id):
-        """Map page showing buses currently approaching a stop."""
-        if stop_id not in STOPS:
-                return "Stop not found", 404
+    """Map page showing buses currently approaching a stop."""
+    if stop_id not in STOPS:
+        return "Stop not found", 404
 
-        stop_info = STOPS[stop_id]
-        approaching = calculate_approaching_buses(stop_id)
+    stop_info = STOPS[stop_id]
+    approaching = calculate_approaching_buses(stop_id)
 
-        return render_template(
-            'display_stop_map.html',
-            stop_info=stop_info,
-            stop_id=stop_id,
-            approaching=approaching,
-        )
+    return render_template(
+        'display_stop_map.html',
+        stop_info=stop_info,
+        stop_id=stop_id,
+        approaching=approaching,
+    )
 
 @app.route('/reload')
 def reload_gtfs():
@@ -1020,7 +1020,7 @@ def stats():
 @app.route('/stops')
 def get_stops():
     stops_list = [
-        {"stop_id": stop_id, "stop_name": stop_data.get("stop_name", "")}
+        {"stop_id": stop_id, "stop_name": stop_data.get("name", "")}
         for stop_id, stop_data in STOPS.items()
     ]
     return jsonify(stops_list)

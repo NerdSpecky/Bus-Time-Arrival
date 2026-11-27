@@ -6,3 +6,5 @@ pytz
 websocket-client
 gunicorn
 jinja2
+pandas
+openpyxl

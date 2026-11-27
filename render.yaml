@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: sunwait-server
+    name: bus-time-arrival
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --worker-class gthread --threads 2 --timeout 120

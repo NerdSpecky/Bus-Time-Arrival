@@ -15,8 +15,8 @@
 #include "qrcode_ric.h"
 
 // ===== WiFi Credentials =====
-const char* ssid = "Maruky";
-const char* password = "muffinbrrrr06";
+const char* ssid = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
 // Main Bus Stop ID: 1007233: MRT Stadium Kajang, 1001512: KL1079 KL SENTRAL
 // ===== Flask Server =====
 const char* serverURL = "https://bus-time-arrival.onrender.com/bus/1001512";
